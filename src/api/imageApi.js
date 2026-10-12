@@ -1,0 +1,342 @@
+import api from "./axios";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { app } from "../firebase/firebaseConfig";
+import { compressImage } from "../utils/imageStore";
+
+const DEFAULT_UPLOAD_TIMEOUT = 45000; // 45s realistic upload timeout for cloud storage / S3
+
+const dataUrlToFile = (dataUrl, filename = "image.jpeg") => {
+  try {
+    const arr = dataUrl.split(",");
+    const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Extracts clean file URL from various backend response formats (prioritizing imageURL)
+ */
+const extractFileUrl = (response) => {
+  if (!response) return "";
+  const data = response.data !== undefined ? response.data : response;
+  if (typeof data === "string") return data;
+
+  const url =
+    data.imageURL ||
+    data.data?.imageURL ||
+    data.imageUrl ||
+    data.url ||
+    data.Location ||
+    data.location ||
+    data.image ||
+    data.secure_url ||
+    data.path ||
+    data.data?.imageUrl ||
+    data.data?.url ||
+    data.data?.Location ||
+    data.data?.location ||
+    data.data?.image ||
+    data.data?.secure_url ||
+    data.fileUrl ||
+    data.data?.fileUrl ||
+    (typeof data.data === "string" ? data.data : "");
+
+  return typeof url === "string" ? url : "";
+};
+
+/**
+ * Extracts multiple file URLs from backend response formats
+ */
+const extractMultipleFileUrls = (response) => {
+  if (!response) return [];
+  const data = response.data !== undefined ? response.data : response;
+  if (Array.isArray(data)) {
+    return data.map((item) => (typeof item === "string" ? item : extractFileUrl(item))).filter(Boolean);
+  }
+  if (Array.isArray(data.imageURL)) return data.imageURL;
+  if (Array.isArray(data.data?.imageURL)) return data.data.imageURL;
+  if (Array.isArray(data.imageUrls)) return data.imageUrls;
+  if (Array.isArray(data.urls)) return data.urls;
+  if (Array.isArray(data.images)) {
+    return data.images.map((item) => (typeof item === "string" ? item : extractFileUrl(item))).filter(Boolean);
+  }
+  if (Array.isArray(data.files)) {
+    return data.files.map((item) => (typeof item === "string" ? item : extractFileUrl(item))).filter(Boolean);
+  }
+  if (Array.isArray(data.data)) {
+    return data.data.map((item) => (typeof item === "string" ? item : extractFileUrl(item))).filter(Boolean);
+  }
+  const single = extractFileUrl(response);
+  return single ? [single] : [];
+};
+
+/**
+ * Helper to upload with endpoint fallback
+ */
+const uploadToFirebaseStorage = async (file, folder = "uploads") => {
+  try {
+    const storage = getStorage(app);
+    const cleanName = (file.name || "image.jpg").replace(/[^a-zA-Z0-9.-]/g, "_");
+    const fileName = `${folder}/${Date.now()}_${cleanName}`;
+    const storageRef = ref(storage, fileName);
+    const uploadPromise = uploadBytes(storageRef, file).then((snapshot) =>
+      getDownloadURL(snapshot.ref)
+    );
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Firebase upload timeout")), 5000)
+    );
+    const downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
+    return downloadUrl;
+  } catch (err) {
+    console.warn("Firebase Storage direct upload notice:", err?.message || err);
+    return "";
+  }
+};
+
+const uploadWithFallback = async (primaryEndpoint, file, options = {}) => {
+  if (!file) return "";
+
+  // If image is larger than 800KB, optimize it on client side for fast, instant upload
+  let fileToUpload = file;
+  if (file && file.size > 800 * 1024 && file.type?.startsWith("image/")) {
+    try {
+      const compressedDataUrl = await compressImage(file, 1600, 0.85);
+      const optimizedFile = compressedDataUrl ? dataUrlToFile(compressedDataUrl, file.name || "image.jpeg") : null;
+      if (optimizedFile && optimizedFile.size > 0 && optimizedFile.size < file.size) {
+        fileToUpload = optimizedFile;
+      }
+    } catch {
+      fileToUpload = file;
+    }
+  }
+
+  const formData = new FormData();
+  formData.append("file", fileToUpload);
+  formData.append("image", fileToUpload); // Dual compatibility: works whether backend expects 'file' or 'image'
+  if (options.folder) {
+    formData.append("folder", options.folder);
+  }
+
+  // Support external AbortController for cancellable uploads
+  const abortController = options.abortController || new AbortController();
+
+  const requestConfig = {
+    timeout: options.timeout || DEFAULT_UPLOAD_TIMEOUT,
+    signal: abortController.signal,
+  };
+
+  const endpoints = [
+    primaryEndpoint,
+    `/images/upload`,
+  ];
+
+  let lastError = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await api.post(endpoint, formData, requestConfig);
+      const url = extractFileUrl(response);
+      if (url) {
+        return url;
+      }
+    } catch (err) {
+      // If the upload was intentionally cancelled, stop immediately
+      if (err?.name === "CanceledError" || abortController.signal.aborted) {
+        throw err;
+      }
+      lastError = err;
+
+      // Fast-fail immediately on auth errors so the UI doesn't hang or hide the real cause
+      if (err?.response?.status === 401) {
+        throw new Error(err?.response?.data?.message || "Session expired (401 Unauthorized). Please re-login to upload files.");
+      }
+      if (err?.response?.status === 403) {
+        throw new Error("Access denied (403 Forbidden). Admin privileges required to upload files.");
+      }
+      if (err?.response?.status === 413) {
+        throw new Error("File too large (413). Please choose an image smaller than 5MB.");
+      }
+
+      // If server is completely offline / unreachable / timed out, break and try next
+      const isServerDown =
+        err.code === "ECONNABORTED" ||
+        err.message?.includes("timeout") ||
+        err.message?.includes("ENOTFOUND") ||
+        err.message?.includes("ECONNREFUSED") ||
+        err.message?.includes("Network Error") ||
+        err?.response?.status === 502 ||
+        err?.response?.status === 503 ||
+        err?.response?.status === 504 ||
+        !err.response;
+
+      if (isServerDown) {
+        break;
+      }
+
+      // Client errors (4xx except 404) are unrecoverable — stop trying backend
+      if (err?.response?.status >= 400 && err?.response?.status < 500 && err?.response?.status !== 404) {
+        break;
+      }
+    }
+  }
+
+  // Guard Firebase fallback: only attempt if storageBucket is actively provisioned
+  // (Skips unprovisioned anushabazaar-2288e bucket to eliminate 20-second freeze and Google 404 CORS errors)
+  const bucketName = app?.options?.storageBucket || "";
+  const isDefaultUnprovisionedBucket = bucketName.includes("anushabazaar-2288e");
+  if (bucketName && !isDefaultUnprovisionedBucket) {
+    try {
+      const folder = options.folder || "uploads";
+      const fbUrl = await uploadToFirebaseStorage(file, folder);
+      if (fbUrl) {
+        return fbUrl;
+      }
+    } catch (fbErr) {
+      console.warn("Firebase storage upload fallback notice:", fbErr?.message);
+    }
+  }
+
+  if (lastError) {
+    const errorMsg = lastError?.response?.data?.message || lastError?.message || "Image upload failed. Server endpoint unreachable.";
+    throw new Error(errorMsg);
+  }
+  return "";
+};
+
+/**
+ * 1. Upload single Product Image
+ * POST /api/images/products (Key: file)
+ * Returns { imageURL, imageUrl, fileUrl, imageKey }
+ */
+export const uploadProductImage = async (file) => {
+  if (!file) return { imageURL: "", imageUrl: "", fileUrl: "", imageKey: "" };
+
+  const url = await uploadWithFallback("/images/products", file, { folder: "products" });
+
+  return {
+    imageURL: url,
+    imageUrl: url,
+    fileUrl: url,
+    imageKey: url.split("/").pop() || "",
+    toString: () => url,
+  };
+};
+
+/**
+ * 2. Upload multiple Product Images
+ * POST /api/images/multiple?folder=products (Key: files)
+ */
+export const uploadMultipleProductImages = async (files) => {
+  if (!files || files.length === 0) return [];
+  const formData = new FormData();
+  Array.from(files).forEach((file) => {
+    formData.append("files", file);
+    formData.append("file", file);
+  });
+
+  const requestConfig = {
+    timeout: DEFAULT_UPLOAD_TIMEOUT,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  };
+
+  try {
+    const response = await api.post("/images/multiple?folder=products", formData, requestConfig);
+    return extractMultipleFileUrls(response);
+  } catch (err) {
+    const results = await Promise.allSettled(
+      Array.from(files).map((file) => uploadProductImage(file))
+    );
+    return results
+      .filter((r) => r.status === "fulfilled" && (r.value?.imageURL || r.value?.imageUrl))
+      .map((r) => r.value.imageURL || r.value.imageUrl);
+  }
+};
+
+/**
+ * 3. Upload Category Image
+ * POST /api/images/categories (Key: file)
+ */
+export const uploadCategoryImage = async (file, options = {}) => {
+  return await uploadWithFallback("/images/categories", file, { folder: "categories", ...options });
+};
+
+/**
+ * 4. Upload Subcategory Image
+ * POST /api/images/subcategories (Key: file)
+ */
+export const uploadSubcategoryImage = async (file, options = {}) => {
+  return await uploadWithFallback("/images/subcategories", file, { folder: "subcategories", ...options });
+};
+
+/**
+ * 5. Upload Banner Image
+ * POST /api/images/banners (Key: file)
+ */
+export const uploadBannerImage = async (file) => {
+  return await uploadWithFallback("/images/banners", file, { folder: "banners" });
+};
+
+/**
+ * Upload Brand Image / Logo
+ * POST /api/images/brands (Key: file)
+ */
+export const uploadBrandImage = async (file) => {
+  return await uploadWithFallback("/images/brands", file, { folder: "brands" });
+};
+
+/**
+ * 6. Upload Document / PDF (KYC)
+ * POST /api/images/documents (Key: file)
+ */
+export const uploadDocument = async (file) => {
+  return await uploadWithFallback("/images/documents", file, { folder: "documents" });
+};
+
+/**
+ * 7. Download / View Image from S3 by Key
+ * GET /api/images/download?key={key}
+ */
+export const getImageDownloadUrl = async (key) => {
+  if (!key) return "";
+  try {
+    const response = await api.get(`/images/download?key=${encodeURIComponent(key)}`);
+    return extractFileUrl(response);
+  } catch (err) {
+    console.warn(`Failed to get download URL for key ${key}:`, err?.message);
+    return "";
+  }
+};
+
+/**
+ * 8. Delete Image from S3
+ * DELETE /api/images?key={key}
+ */
+export const deleteImage = async (key) => {
+  if (!key) return null;
+  const response = await api.delete(`/images?key=${encodeURIComponent(key)}`);
+  return response.data;
+};
+
+export default {
+  uploadProductImage,
+  uploadMultipleProductImages,
+  uploadCategoryImage,
+  uploadSubcategoryImage,
+  uploadBannerImage,
+  uploadBrandImage,
+  uploadDocument,
+  getImageDownloadUrl,
+  deleteImage,
+};
+
+
