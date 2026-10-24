@@ -22,6 +22,7 @@ import {
   getPendingProducts,
   approveProduct,
   rejectProduct,
+  isSellerAddedProduct,
 } from "../api/productApi";
 import { subscribeDataUpdate } from "../api/dataStore";
 import { useToast } from "../components/ToastContext";
@@ -47,12 +48,15 @@ export default function ProductApprovals() {
   const [rejectReason, setRejectReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  const loadPending = async () => {
+  const loadPending = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setError("");
-      const list = await getPendingProducts();
-      setProducts(list || []);
+      const list = await getPendingProducts({ bypassCache: !silent });
+      const sellerOnly = (list || []).filter(isSellerAddedProduct);
+      setProducts(sellerOnly);
     } catch (err) {
       console.error(err);
       if (err?.response?.status === 403) {
@@ -66,10 +70,10 @@ export default function ProductApprovals() {
   };
 
   useEffect(() => {
-    loadPending();
+    loadPending(false);
     const unsub = subscribeDataUpdate((detail) => {
       if (detail.entity === "products") {
-        loadPending();
+        loadPending(true);
       }
     });
     return unsub;
@@ -80,11 +84,11 @@ export default function ProductApprovals() {
     const id = productToApprove.id || productToApprove._id;
     try {
       setActionLoading(true);
-      await approveProduct(id);
+      await approveProduct(id, productToApprove);
       toast.success(`Product "${productToApprove.name || "Item"}" approved successfully!`);
       setApproveConfirmProduct(null);
       setSelectedProduct(null);
-      await loadPending();
+      await loadPending(true);
     } catch (err) {
       const msg =
         err?.response?.status === 403
@@ -101,11 +105,11 @@ export default function ProductApprovals() {
     const id = productToReject.id || productToReject._id;
     try {
       setActionLoading(true);
-      await rejectProduct(id, rejectReason);
+      await rejectProduct(id, rejectReason, productToReject);
       toast.warning(`Product "${productToReject.name || "Item"}" was rejected.`);
       setRejectModalProduct(null);
       setSelectedProduct(null);
-      await loadPending();
+      await loadPending(true);
     } catch (err) {
       const msg =
         err?.response?.status === 403
@@ -117,7 +121,7 @@ export default function ProductApprovals() {
     }
   };
 
-  const filteredProducts = products.filter((p) => {
+  const filteredProducts = products.filter(isSellerAddedProduct).filter((p) => {
     const text = `${p.name || ""} ${p.sku || ""} ${p.brand || ""} ${p.seller?.name || p.sellerName || ""} ${p.category?.name || p.category || ""}`.toLowerCase();
     return text.includes(search.toLowerCase());
   });
@@ -134,7 +138,7 @@ export default function ProductApprovals() {
         <div className="header-stats">
           <span className="header-stat pending">
             <Clock size={15} />
-            <strong>{products.length}</strong> Pending Approval
+            <strong>{filteredProducts.length}</strong> Pending Approval
           </span>
         </div>
       </div>
@@ -154,8 +158,8 @@ export default function ProductApprovals() {
       {/* Main Table Card */}
       <div className="content-card">
         {/* Table Toolbar */}
-        <div className="table-toolbar">
-          <div className="search-input">
+        <div className="table-toolbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+          <div className="search-input" style={{ flex: 1, minWidth: "260px" }}>
             <Search size={18} />
             <input
               placeholder="Search by product name, SKU, seller, category..."
@@ -167,6 +171,27 @@ export default function ProductApprovals() {
                 ×
               </button>
             )}
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              className="filter-button"
+              onClick={() => loadPending(false)}
+              disabled={loading}
+              title="Refresh pending products from backend"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "36px", padding: "0 12px", cursor: "pointer" }}
+            >
+              <RotateCcw size={14} className={loading ? "animate-spin" : ""} />
+              <span>Refresh</span>
+            </button>
+            <button
+              className="filter-button"
+              onClick={() => navigate("/admin/products?status=REJECTED")}
+              title="View products currently rejected"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "36px", padding: "0 12px", cursor: "pointer", color: "#64748b" }}
+            >
+              <ExternalLink size={14} />
+              <span>Rejected Items</span>
+            </button>
           </div>
         </div>
 
@@ -198,6 +223,9 @@ export default function ProductApprovals() {
                         <CheckCircle2 size={42} style={{ color: "#10b981" }} />
                         <h3>No pending products for approval.</h3>
                         <p>{search ? `No results matching "${search}"` : "All supplier catalog submissions have been reviewed."}</p>
+                        <p style={{ fontSize: "12px", color: "#94a3b8", marginTop: "6px", maxWidth: "480px", lineHeight: 1.5 }}>
+                          If a seller just re-submitted a previously rejected product, ensure the backend resets its status back to <strong>PENDING</strong>. You can check the current status of all items in <button onClick={() => navigate("/admin/products")} style={{ textDecoration: "underline", background: "none", border: "none", color: "#3b82f6", cursor: "pointer", padding: 0, fontWeight: 600 }}>Products Management</button>.
+                        </p>
                       </div>
                     </td>
                   </tr>
@@ -205,8 +233,8 @@ export default function ProductApprovals() {
                   filteredProducts.map((product) => {
                     const id = product.id || product._id;
                     const price = Number(product.price ?? product.sellingPrice ?? product.basePrice ?? 0);
-                    const sellerName = product.seller?.name || product.sellerName || "Direct Supplier";
-                    const categoryName = product.category?.name || product.category || "General";
+                    const sellerName = product.seller?.name || product.sellerName || "—";
+                    const categoryName = product.category?.name || product.category || "—";
                     const submitted = product.submittedAt || (product.createdAt ? new Date(product.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "Today");
 
                     return (
@@ -322,7 +350,7 @@ export default function ProductApprovals() {
                 <div className="header-texts">
                   <h2>{selectedProduct.name}</h2>
                   <p>
-                    Submitted by <strong>{selectedProduct.seller?.name || selectedProduct.sellerName || "Merchant"}</strong> &nbsp;•&nbsp; SKU: <span className="font-mono" style={{ color: "#fbbf24" }}>{selectedProduct.sku || "—"}</span>
+                    Submitted by <strong>{selectedProduct.seller?.name || selectedProduct.sellerName || "—"}</strong> &nbsp;•&nbsp; SKU: <span className="font-mono" style={{ color: "#fbbf24" }}>{selectedProduct.sku || "—"}</span>
                   </p>
                 </div>
               </div>
@@ -344,7 +372,7 @@ export default function ProductApprovals() {
                       src={
                         selectedProduct.images && selectedProduct.images[activeImageIdx]
                           ? selectedProduct.images[activeImageIdx]
-                          : selectedProduct.image || "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=600&auto=format&fit=crop&q=80"
+                          : selectedProduct.image || ""
                       }
                       alt={selectedProduct.name}
                       style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -386,21 +414,21 @@ export default function ProductApprovals() {
                   <div className="input-field-wrap">
                     <label>Brand / Manufacturer</label>
                     <div style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
-                      {selectedProduct.brand || "Standard B2B Grade"}
+                      {selectedProduct.brand || "—"}
                     </div>
                   </div>
 
                   <div className="input-field-wrap">
                     <label>HSN Code</label>
                     <div className="font-mono" style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
-                      {selectedProduct.hsn || "7214"}
+                      {selectedProduct.hsn || "—"}
                     </div>
                   </div>
 
                   <div className="input-field-wrap full-width">
                     <label>Category Taxonomy</label>
                     <div style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, color: "#0f172a" }}>
-                      {selectedProduct.category?.name || selectedProduct.category || "Industrial Supplies"}
+                      {selectedProduct.category?.name || selectedProduct.category || "—"}
                     </div>
                   </div>
                 </div>
@@ -412,7 +440,7 @@ export default function ProductApprovals() {
                   <Package size={13} /> Technical Description & Overview
                 </div>
                 <p style={{ fontSize: 13, lineHeight: 1.6, color: "#334155", margin: 0 }}>
-                  {selectedProduct.description || "Industrial-grade structural material manufactured to standard compliance tolerances. Certified for commercial and construction application."}
+                  {selectedProduct.description || "No description provided."}
                 </p>
               </div>
             </div>

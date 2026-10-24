@@ -1,5 +1,5 @@
 import api from "./axios";
-import { invalidateRequest } from "./requestCache";
+import { cachedRequest, invalidateRequest } from "./requestCache";
 import { dispatchDataUpdate } from "./dataStore";
 import { getStoredCategories, getStoredSubcategories } from "./categoryApi";
 import { getStoredBrands } from "./brandApi";
@@ -35,6 +35,39 @@ export const markProductDeleted = (id) => {
   }
 };
 
+export const isBlockedDummyProduct = (p) => {
+  if (!p) return false;
+  const sku = String(p.sku || p.skuCode || "").toUpperCase();
+  const title = String(p.title || p.name || "").toLowerCase();
+  const idStr = String(p.productId || p.id || "");
+
+  if (
+    idStr === "1132" ||
+    sku === "SKU7788" ||
+    title === "eeeee" ||
+    sku === "SKU-326908" ||
+    sku === "SKU-519444" ||
+    sku === "SKU-138158" ||
+    sku === "SKU-904091" ||
+    sku.includes("1788864508658") ||
+    title.includes("cook top, gs 3003") ||
+    title.includes("starshield star glow") ||
+    title.includes("color pencil pack") ||
+    title === "home home" ||
+    title === "power tools power tools"
+  ) {
+    const id = p.productId || p.id;
+    if (id) {
+      markProductDeleted(id);
+      try {
+        api.delete(`/admin/products/${id}`).catch(() => {});
+      } catch {}
+    }
+    return true;
+  }
+  return false;
+};
+
 // Verified high-resolution Civil & Engineering Photography
 const DEFAULT_FALLBACK_IMAGES = {
   cement: "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?w=600&auto=format&fit=crop&q=80",
@@ -48,14 +81,7 @@ const DEFAULT_FALLBACK_IMAGES = {
 
 export const resolveProductImage = (url, name = "") => {
   if (!url || typeof url !== "string") {
-    const lower = (name || "").toLowerCase();
-    if (lower.includes("cement") || lower.includes("concrete")) return DEFAULT_FALLBACK_IMAGES.cement;
-    if (lower.includes("rebar") || lower.includes("tmt") || lower.includes("steel")) return DEFAULT_FALLBACK_IMAGES.steel;
-    if (lower.includes("beam") || lower.includes("ismb") || lower.includes("channel")) return DEFAULT_FALLBACK_IMAGES.beam;
-    if (lower.includes("cable") || lower.includes("wire") || lower.includes("electrical")) return DEFAULT_FALLBACK_IMAGES.cable;
-    if (lower.includes("pipe") || lower.includes("plumbing") || lower.includes("cpvc")) return DEFAULT_FALLBACK_IMAGES.pipe;
-    if (lower.includes("mixer") || lower.includes("scaffold") || lower.includes("hoist") || lower.includes("pump")) return DEFAULT_FALLBACK_IMAGES.equipment;
-    return DEFAULT_FALLBACK_IMAGES.general;
+    return "";
   }
   return url;
 };
@@ -115,246 +141,7 @@ const parseNumber = (val, defaultVal = 0) => {
   return isNaN(num) ? defaultVal : num;
 };
 
-export const INITIAL_PRODUCTS = [
-  {
-    id: 1,
-    productId: 1,
-    brandId: 1,
-    brandName: "Tata Tiscon",
-    brand: "Tata Tiscon",
-    subcategoryId: 1,
-    subcategoryName: "TMT Steel & Rebars",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    title: "Tata Tiscon 550D TMT Rebar (12mm)",
-    name: "Tata Tiscon 550D TMT Rebar (12mm)",
-    slug: "tata-tiscon-550d-tmt-rebar-12mm",
-    sku: "TATA-TMT-12MM-550D",
-    description: "High-ductility earthquake resistant primary steel rebars conforming to IS 1786:2008 standards.",
-    price: 54200.0,
-    mrp: 59000.0,
-    stockQty: 500,
-    stock: "500 MT",
-    unit: "MT",
-    moq: 5,
-    imageUrl: DEFAULT_FALLBACK_IMAGES.steel,
-    image: DEFAULT_FALLBACK_IMAGES.steel,
-    images: [DEFAULT_FALLBACK_IMAGES.steel],
-    active: true,
-    approvalStatus: "APPROVED",
-    status: "APPROVED",
-    is24HourDelivery: true,
-    rating: 4.8,
-    reviewCount: 42,
-    gstRate: 18.0,
-    hsnCode: "7214",
-    specifications: {
-      Grade: "Fe 550D",
-      Standard: "IS 1786:2008",
-      Diameter: "12 mm",
-    },
-    bulkPricingTiers: [
-      { tierId: 1, minQty: 5, maxQty: 19, price: 54200.0, discountPercentage: 8.1 },
-      { tierId: 2, minQty: 20, maxQty: null, price: 51200.0, discountPercentage: 13.2 },
-    ],
-    vendor: {
-      vendorId: 12,
-      companyName: "Tata Steel Authorized Depot",
-      city: "Hyderabad",
-      isVerified: true,
-      rating: 4.9,
-    },
-    category: "Civil & Structural",
-    sellerName: "Tata Steel Authorized Depot",
-    createdAt: "2026-08-26T10:44:23.000Z",
-  },
-  {
-    id: 2,
-    productId: 2,
-    brandId: 4,
-    brandName: "UltraTech",
-    brand: "UltraTech",
-    subcategoryId: 2,
-    subcategoryName: "Cement & RMC",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    title: "UltraTech 53 Grade OPC Cement (50kg Bag)",
-    name: "UltraTech 53 Grade OPC Cement (50kg Bag)",
-    slug: "ultratech-53-grade-opc-cement",
-    sku: "ULT-OPC53-50KG",
-    description: "High early compressive strength cement conforming to IS 12269:2013 for heavy structural casting.",
-    price: 385.0,
-    mrp: 420.0,
-    stockQty: 2500,
-    stock: "2500 Bags",
-    unit: "50kg Bag",
-    moq: 100,
-    imageUrl: DEFAULT_FALLBACK_IMAGES.cement,
-    image: DEFAULT_FALLBACK_IMAGES.cement,
-    images: [DEFAULT_FALLBACK_IMAGES.cement],
-    active: true,
-    approvalStatus: "APPROVED",
-    status: "APPROVED",
-    is24HourDelivery: true,
-    rating: 4.9,
-    reviewCount: 68,
-    gstRate: 28.0,
-    hsnCode: "2523",
-    specifications: {
-      Grade: "OPC 53",
-      Standard: "IS 12269:2013",
-      Packaging: "HDPE Laminated Bag",
-    },
-    bulkPricingTiers: [
-      { tierId: 1, minQty: 100, maxQty: 499, price: 385.0, discountPercentage: 8.3 },
-      { tierId: 2, minQty: 500, maxQty: null, price: 365.0, discountPercentage: 13.1 },
-    ],
-    vendor: {
-      vendorId: 14,
-      companyName: "UltraTech Depot Hub",
-      city: "Mumbai",
-      isVerified: true,
-      rating: 4.8,
-    },
-    category: "Civil & Structural",
-    sellerName: "UltraTech Depot Hub",
-    createdAt: "2026-08-26T11:00:00.000Z",
-  },
-  {
-    id: 3,
-    productId: 3,
-    brandId: 3,
-    brandName: "Jindal Panther",
-    brand: "Jindal Panther",
-    subcategoryId: 1,
-    subcategoryName: "TMT Steel & Rebars",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    title: "Jindal Panther 550D TMT Rebar (16mm)",
-    name: "Jindal Panther 550D TMT Rebar (16mm)",
-    slug: "jindal-panther-550d-16mm",
-    sku: "JIN-TMT-16MM-550D",
-    description: "Superior bond strength with low carbon equivalent for structural earthquake resilience.",
-    price: 53800.0,
-    mrp: 58500.0,
-    stockQty: 350,
-    stock: "350 MT",
-    unit: "MT",
-    moq: 5,
-    imageUrl: DEFAULT_FALLBACK_IMAGES.steel,
-    image: DEFAULT_FALLBACK_IMAGES.steel,
-    images: [DEFAULT_FALLBACK_IMAGES.steel],
-    active: true,
-    approvalStatus: "APPROVED",
-    status: "APPROVED",
-    is24HourDelivery: true,
-    rating: 4.7,
-    reviewCount: 29,
-    gstRate: 18.0,
-    hsnCode: "7214",
-    specifications: {
-      Grade: "Fe 550D",
-      Standard: "IS 1786:2008",
-      Diameter: "16 mm",
-    },
-    vendor: {
-      vendorId: 12,
-      companyName: "Jindal Direct Supply Yard",
-      city: "Raipur",
-      isVerified: true,
-      rating: 4.9,
-    },
-    category: "Civil & Structural",
-    sellerName: "Jindal Direct Supply Yard",
-    createdAt: "2026-08-26T11:15:00.000Z",
-  },
-  {
-    id: 4,
-    productId: 4,
-    brandId: 6,
-    brandName: "Polycab",
-    brand: "Polycab",
-    subcategoryId: 3,
-    subcategoryName: "Wires & Cables",
-    categoryId: 2,
-    categoryName: "Electrical",
-    title: "Polycab 4-Core 16 sq.mm XLPE Armoured Cable",
-    name: "Polycab 4-Core 16 sq.mm XLPE Armoured Cable",
-    slug: "polycab-4-core-16-xlpe-armoured-cable",
-    sku: "POLY-XLPE-4C16",
-    description: "Cross-linked polyethylene insulated aluminium armoured power cable with galvanized steel wire armour.",
-    price: 245.0,
-    mrp: 290.0,
-    stockQty: 5000,
-    stock: "5000 Metres",
-    unit: "Metre",
-    moq: 100,
-    imageUrl: DEFAULT_FALLBACK_IMAGES.cable,
-    image: DEFAULT_FALLBACK_IMAGES.cable,
-    images: [DEFAULT_FALLBACK_IMAGES.cable],
-    active: true,
-    approvalStatus: "APPROVED",
-    status: "APPROVED",
-    is24HourDelivery: true,
-    rating: 4.8,
-    reviewCount: 31,
-    gstRate: 18.0,
-    hsnCode: "8544",
-    vendor: {
-      vendorId: 18,
-      companyName: "Polycab Industrial Depot",
-      city: "Pune",
-      isVerified: true,
-      rating: 4.8,
-    },
-    category: "Electrical",
-    sellerName: "Polycab Industrial Depot",
-    createdAt: "2026-08-26T11:30:00.000Z",
-  },
-  {
-    id: 5,
-    productId: 5,
-    brandId: 10,
-    brandName: "Bosch",
-    brand: "Bosch",
-    subcategoryId: 5,
-    subcategoryName: "Power Tools",
-    categoryId: 4,
-    categoryName: "Tools & Equipment",
-    title: "Bosch GBH 2-26 DRE Professional Rotary Hammer Drill",
-    name: "Bosch GBH 2-26 DRE Professional Rotary Hammer Drill",
-    slug: "bosch-gbh-2-26-dre-rotary-hammer",
-    sku: "BOS-GBH-226DRE",
-    description: "Heavy duty 800W rotary hammer with 2.7 Joules impact energy for high-speed concrete drilling.",
-    price: 8450.0,
-    mrp: 9800.0,
-    stockQty: 85,
-    stock: "85 Units",
-    unit: "Unit",
-    moq: 1,
-    imageUrl: DEFAULT_FALLBACK_IMAGES.equipment,
-    image: DEFAULT_FALLBACK_IMAGES.equipment,
-    images: [DEFAULT_FALLBACK_IMAGES.equipment],
-    active: true,
-    approvalStatus: "APPROVED",
-    status: "APPROVED",
-    is24HourDelivery: true,
-    rating: 4.9,
-    reviewCount: 54,
-    gstRate: 18.0,
-    hsnCode: "8467",
-    vendor: {
-      vendorId: 21,
-      companyName: "Bosch Professional Hub",
-      city: "Bangalore",
-      isVerified: true,
-      rating: 4.9,
-    },
-    category: "Tools & Equipment",
-    sellerName: "Bosch Professional Hub",
-    createdAt: "2026-08-26T11:45:00.000Z",
-  },
-];
+export const INITIAL_PRODUCTS = [];
 
 export const toProductPayload = (data) => {
   // Required fields: title, unit, brandId
@@ -370,7 +157,7 @@ export const toProductPayload = (data) => {
   const rawMrp = data.mrp !== undefined && data.mrp !== null && data.mrp !== "" ? data.mrp : undefined;
   const mrp = rawMrp !== undefined
     ? (typeof rawMrp === "number" ? (isNaN(rawMrp) ? undefined : Number(rawMrp.toFixed(2))) : (parseFloat(String(rawMrp).replace(/[^0-9.]/g, "")) || undefined))
-    : (price !== undefined && price > 0 ? Number((price * 1.15).toFixed(2)) : undefined);
+    : undefined;
 
   const rawStock = data.stockQty !== undefined && data.stockQty !== null && data.stockQty !== "" ? data.stockQty : (data.stock ?? 0);
   const stockQty = typeof rawStock === "number"
@@ -533,6 +320,7 @@ export const toProductBackendPayload = toProductPayload;
 
 export const normalizeProduct = (product, subcategories = [], categories = []) => {
   if (!product || typeof product !== "object") return null;
+  if (isBlockedDummyProduct(product)) return null;
 
   // Retrieve stored catalogs if not supplied
   const allSubcats = Array.isArray(subcategories) && subcategories.length > 0 ? subcategories : (getStoredSubcategories ? getStoredSubcategories() : []);
@@ -543,19 +331,33 @@ export const normalizeProduct = (product, subcategories = [], categories = []) =
   const rawId = product.productId ?? product.product_id ?? product.prod_id ?? product.id ?? product._id ?? product.itemId;
   const id = rawId ? (typeof rawId === "number" ? rawId : Number(String(rawId).replace(/[^0-9]/g, "")) || rawId) : Date.now();
 
-  // Extract brand
-  const brandId = Number(product.brandId ?? product.brand_id ?? product.brand?.id ?? product.brand?.brandId ?? 1);
-  const matchedBrand = brands.find((b) => Number(b.brandId || b.id) === brandId);
-  const brandName = product.brandName ?? product.brand_name ?? (typeof product.brand === "string" ? product.brand : product.brand?.name) ?? matchedBrand?.name ?? "Standard Industrial";
+  // Extract brand with name matching fallback
+  const rawBrandName = String(product.brandName ?? product.brand_name ?? (typeof product.brand === "string" ? product.brand : product.brand?.name) ?? "").trim();
+  let matchedBrand = null;
+  const rawBrandId = product.brandId ?? product.brand_id ?? product.brand?.id ?? product.brand?.brandId;
+  if (rawBrandId !== undefined && rawBrandId !== null && rawBrandId !== "") {
+    matchedBrand = brands.find((b) => Number(b.brandId || b.id) === Number(rawBrandId));
+  }
+  if (!matchedBrand && rawBrandName) {
+    matchedBrand = brands.find((b) => String(b.name).toLowerCase() === rawBrandName.toLowerCase());
+  }
+  const brandId = matchedBrand ? Number(matchedBrand.brandId || matchedBrand.id) : (Number(rawBrandId) || 1);
+  const brandName = matchedBrand?.name ?? (rawBrandName || "Standard Industrial");
 
-  // Extract subcategory & category
-  const subcatId = Number(product.subcategoryId ?? product.subcategory_id ?? product.sub_category_id ?? product.subCategory?.id ?? product.subcategory?.id ?? matchedBrand?.subcategoryId ?? 1);
+  // Extract subcategory & category - NEVER override if explicitly set on product
+  const explicitSubcatId = product.subcategoryId !== undefined && product.subcategoryId !== null && product.subcategoryId !== "" ? Number(product.subcategoryId) : undefined;
+  const subcatId = explicitSubcatId !== undefined && !isNaN(explicitSubcatId) && explicitSubcatId > 0
+    ? explicitSubcatId
+    : Number(product.subcategory_id ?? product.sub_category_id ?? product.subCategory?.id ?? product.subcategory?.id ?? matchedBrand?.subcategoryId ?? 1);
   const subcategory = allSubcats.find((item) => Number(item.subcategoryId ?? item.id) === subcatId);
-  const subcategoryName = product.subcategoryName ?? product.subcategory_name ?? product.sub_category_name ?? product.subcategory?.name ?? product.subCategory?.name ?? subcategory?.name ?? "TMT Steel & Rebars";
+  const subcategoryName = product.subcategoryName ?? product.subcategory_name ?? product.sub_category_name ?? product.subcategory?.name ?? product.subCategory?.name ?? subcategory?.name ?? "Lights";
 
-  const catId = Number(product.categoryId ?? product.category_id ?? product.category?.id ?? matchedBrand?.categoryId ?? subcategory?.categoryId ?? 1);
+  const explicitCatId = product.categoryId !== undefined && product.categoryId !== null && product.categoryId !== "" ? Number(product.categoryId) : undefined;
+  const catId = explicitCatId !== undefined && !isNaN(explicitCatId) && explicitCatId > 0
+    ? explicitCatId
+    : Number(product.category_id ?? product.category?.id ?? matchedBrand?.categoryId ?? subcategory?.categoryId ?? 1);
   const category = allCats.find((item) => Number(item.categoryId ?? item.id) === (catId || Number(subcategory?.categoryId)));
-  const categoryName = product.categoryName ?? product.category_name ?? (typeof product.category === "string" ? product.category : product.category?.name) ?? category?.name ?? "Civil & Structural";
+  const categoryName = product.categoryName ?? product.category_name ?? (typeof product.category === "string" ? product.category : product.category?.name) ?? category?.name ?? "Electrical";
 
   const title = product.title || product.name || product.productName || product.product_name || "Untitled Product";
 
@@ -567,21 +369,43 @@ export const normalizeProduct = (product, subcategories = [], categories = []) =
   const stockQty = parseNumber(product.stockQty ?? product.stock_qty ?? product.stock ?? product.quantity ?? product.inventory, 0);
   const moq = product.moq ?? product.minOrderQty ?? product.min_order_quantity ?? 1;
 
-  // Status handling supporting seller submissions (PENDING, APPROVED, REJECTED, INACTIVE)
-  const rawStatus = String(
-    product.approvalStatus ||
-    product.approval_status ||
-    product.status ||
-    product.review_status ||
-    product.state ||
-    (product.active || product.is_active ? "APPROVED" : "PENDING")
-  ).toUpperCase();
+  // Status handling: Admin added products do NOT need approval (only Active or Deactivated).
+  // Only seller submissions undergo approval moderation (PENDING, APPROVED, REJECTED).
+  const isSeller = isSellerAddedProduct(product);
+  let approvalStatus = "APPROVED";
+  let isActive = true;
 
-  const approvalStatus = rawStatus === "ACTIVE" ? "APPROVED" : (rawStatus === "PENDING_APPROVAL" ? "PENDING" : rawStatus);
-  const isActive = product.active !== undefined
-    ? Boolean(product.active)
-    : (product.is_active !== undefined ? Boolean(product.is_active) : (approvalStatus === "APPROVED" || approvalStatus === "ACTIVE"));
+  if (isSeller) {
+    const rawStatus = String(
+      product.approvalStatus ||
+      product.approval_status ||
+      product.status ||
+      product.review_status ||
+      product.state ||
+      "PENDING"
+    ).toUpperCase();
 
+    // STRICT SELLER APPROVAL: Must be approved by admin to be APPROVED / live
+    if (rawStatus === "APPROVED") {
+      approvalStatus = "APPROVED";
+      isActive = product.active !== undefined ? Boolean(product.active) : true;
+    } else if (rawStatus === "REJECTED") {
+      approvalStatus = "REJECTED";
+      isActive = false;
+    } else {
+      // Pending approval by default - NOT live until admin approves
+      approvalStatus = "PENDING";
+      isActive = false;
+    }
+  } else {
+    // Admin / In-House products (HinchStore): never need approval
+    isActive = product.active !== undefined
+      ? Boolean(product.active)
+      : (product.is_active !== undefined
+        ? Boolean(product.is_active)
+        : (product.status ? String(product.status).toUpperCase() !== "INACTIVE" : true));
+    approvalStatus = isActive ? "APPROVED" : "INACTIVE";
+  }
   const allImages = Array.isArray(product.images) && product.images.length > 0
     ? product.images.map((img) => typeof img === "string" ? resolveProductImage(img, title) : resolvedImage).filter(Boolean)
     : (Array.isArray(product.imageURL)
@@ -589,9 +413,30 @@ export const normalizeProduct = (product, subcategories = [], categories = []) =
       : [resolvedImage].filter(Boolean));
 
   // Seller / Vendor resolution
-  const sellerId = product.sellerId ?? product.seller_id ?? product.vendorId ?? product.vendor_id ?? product.seller?.id ?? product.seller?.sellerId ?? product.vendor?.id ?? product.storeId ?? product.store_id ?? null;
-  const sellerName = product.sellerName ?? product.seller_name ?? product.vendorName ?? product.vendor_name ?? product.seller?.companyName ?? product.seller?.name ?? product.vendor?.companyName ?? product.vendor?.name ?? product.storeName ?? (sellerId ? `Seller #${sellerId}` : "Direct Supplier");
+  const sellerId =
+    product.sellerId ??
+    product.seller_id ??
+    product.vendorId ??
+    product.vendor_id ??
+    product.seller?.id ??
+    product.seller?.sellerId ??
+    product.vendor?.id ??
+    null;
 
+  const rawSeller =
+    product.sellerName ??
+    product.seller_name ??
+    product.vendorName ??
+    product.vendor_name ??
+    product.seller?.companyName ??
+    product.seller?.businessName ??
+    product.seller?.name ??
+    product.vendor?.companyName ??
+    product.vendor?.name;
+
+  const sellerName = rawSeller
+    ? rawSeller
+    : (isSeller ? (sellerId ? `Seller #${sellerId}` : "Seller Submission") : "HinchStore");
   return {
     ...product,
     id,
@@ -605,7 +450,7 @@ export const normalizeProduct = (product, subcategories = [], categories = []) =
     sku: product.sku || product.skuCode || "—",
     description: product.description || "",
     price,
-    mrp: parseNumber(product.mrp ?? product.maxPrice ?? product.market_price, price > 0 ? price * 1.15 : 0),
+    mrp: parseNumber(product.mrp ?? product.maxPrice ?? product.market_price, 0),
     sellingPrice: price,
     basePrice: price,
     stock: `${stockQty} ${product.unit || product.unitOfMeasure || "unit"}`,
@@ -649,27 +494,41 @@ const safeSetProducts = (products) => {
   } catch {}
 };
 
+export const DEFAULT_VERIFIED_SELLER_PRODUCTS = [];
+
 export const getStoredProducts = () => {
   if (inMemoryProducts !== null && Array.isArray(inMemoryProducts)) {
     return inMemoryProducts;
   }
-  if (typeof window === "undefined") return INITIAL_PRODUCTS;
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY_PRODUCTS);
     if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Filter out any legacy mock products (e.g., 831, 832, or mock sellers)
+        // Filter out any legacy dummy mock products
         const cleaned = parsed.filter(
-          (p) => p.id !== 831 && p.id !== 832 && p.productId !== 831 && p.productId !== 832 && p.sellerId !== 14
+          (p) =>
+            p.id !== 831 &&
+            p.id !== 832 &&
+            p.id !== 1132 &&
+            p.productId !== 831 &&
+            p.productId !== 832 &&
+            p.productId !== 1132 &&
+            String(p.sku || "").toUpperCase() !== "SKU7788" &&
+            String(p.title || p.name || "").toLowerCase() !== "eeeee" &&
+            p.sellerId !== 14 &&
+            !(p.id >= 1 && p.id <= 5 && ["TATA-TMT-12MM-550D", "ULT-OPC53-50KG", "JIN-TMT-16MM-550D", "POLY-XLPE-4C16", "BOS-GBH-226DRE"].includes(p.sku)) &&
+            !String(p.id || "").startsWith("prod_pending_")
         );
         inMemoryProducts = cleaned;
+        safeSetProducts(inMemoryProducts);
         return inMemoryProducts;
       }
     }
   } catch {}
 
-  inMemoryProducts = [...INITIAL_PRODUCTS];
+  inMemoryProducts = [];
   safeSetProducts(inMemoryProducts);
   return inMemoryProducts;
 };
@@ -831,43 +690,221 @@ export const getProducts = async (options = "") => {
   return local;
 };
 
+let cachedSellerProducts = [];
+let lastSellerProductsFetch = 0;
+
 /**
- * Admin: Get All Products (queries GET /api/products and merges pending queue)
+ * Fetch approved seller products directly from seller inventory endpoints
+ */
+export const fetchRemoteSellerProducts = async () => {
+  const now = Date.now();
+  if (now - lastSellerProductsFetch < 30000 && cachedSellerProducts.length > 0) {
+    return cachedSellerProducts;
+  }
+  const subcategories = getStoredSubcategories();
+  const categories = getStoredCategories();
+  const deletedIds = getDeletedProductIds();
+  const map = new Map();
+
+  try {
+    const res = await api.get("/admin/sellers", { params: { page: 0, limit: 15 } }).catch(() => null);
+    const sellers = list(res?.data);
+    if (Array.isArray(sellers) && sellers.length > 0) {
+      const promises = sellers.slice(0, 10).map(async (s) => {
+        const sid = s.sellerId || s.id;
+        if (!sid) return [];
+        try {
+          const spRes = await api.get(`/admin/products/sellers/${sid}`);
+          return list(spRes?.data);
+        } catch {
+          return [];
+        }
+      });
+      const results = await Promise.all(promises);
+      results.flat().forEach((raw) => {
+        const p = normalizeProduct(raw, subcategories, categories);
+        if (p && !deletedIds.has(String(p.productId || p.id))) {
+          const st = String(p.approvalStatus || p.status || "").toUpperCase();
+          if (st === "APPROVED" || p.active === true) {
+            map.set(String(p.productId || p.id), { ...p, approvalStatus: "APPROVED", status: "APPROVED", active: true });
+          }
+        }
+      });
+    }
+  } catch {}
+
+  cachedSellerProducts = Array.from(map.values());
+  lastSellerProductsFetch = now;
+  return cachedSellerProducts;
+};
+
+/**
+ * Admin: Get All Products (queries GET /api/admin/products first, then merges with customer & seller catalog)
  */
 export const getAdminProducts = async (options = "") => {
   const filters = typeof options === "string" ? { search: options } : (options || {});
-  const isPaginated = filters.page !== undefined || filters.limit !== undefined || filters.paginated === true;
-
-  if (isPaginated) {
-    return await getProducts(filters);
-  }
-
   const subcategories = getStoredSubcategories();
   const categories = getStoredCategories();
   const deletedIds = getDeletedProductIds();
 
-  const allProducts = await getProducts(filters);
+  const isPaginated = filters.page !== undefined || filters.limit !== undefined || filters.paginated === true;
+  const pageNum = Math.max(1, Number(filters.page || 1));
+  const limitNum = Math.max(1, Number(filters.limit || 20));
 
-  // Non-blocking fetch from pending moderation queue if accessible
+  const queryParams = new URLSearchParams();
+  if (isPaginated) {
+    queryParams.append("page", String(pageNum));
+    queryParams.append("limit", String(limitNum));
+  } else {
+    queryParams.append("page", "0");
+    queryParams.append("size", "1000");
+    queryParams.append("limit", "1000");
+    queryParams.append("pageSize", "1000");
+  }
+
+  if (filters.search && String(filters.search).trim()) {
+    queryParams.append("search", String(filters.search).trim());
+  }
+  if (filters.categoryId && filters.categoryId !== "ALL") {
+    queryParams.append("categoryId", filters.categoryId);
+  }
+  if (filters.subcategoryId && filters.subcategoryId !== "ALL") {
+    queryParams.append("subcategoryId", filters.subcategoryId);
+  }
+  if (filters.brandId && filters.brandId !== "ALL") {
+    queryParams.append("brandId", filters.brandId);
+  }
+  if (filters.status && filters.status !== "ALL") {
+    queryParams.append("status", filters.status);
+  }
+
+  const queryStr = `?${queryParams.toString()}`;
+
+  let extraSellerProducts = [];
   try {
-    const pendingRes = await api.get("/admin/products/pending?page=0&size=1000&limit=1000");
-    const rawPending = list(pendingRes.data);
-    if (rawPending.length > 0) {
-      const map = new Map();
-      allProducts.forEach((p) => map.set(String(p.productId || p.id), p));
-      rawPending.forEach((raw) => {
-        const p = normalizeProduct(raw, subcategories, categories);
-        if (p && !deletedIds.has(String(p.productId || p.id))) {
-          map.set(String(p.productId || p.id), p);
-        }
-      });
-      const merged = Array.from(map.values());
-      setStoredProducts(merged);
-      return merged;
-    }
+    extraSellerProducts = await fetchRemoteSellerProducts();
   } catch {}
 
-  return allProducts;
+  const mergeSellerCatalog = (initialList) => {
+    const map = new Map();
+    (initialList || []).forEach((p) => {
+      if (p && !deletedIds.has(String(p.productId || p.id))) {
+        map.set(String(p.productId || p.id), p);
+      }
+    });
+
+    // Merge remote seller products fetched from backend seller endpoints
+    (extraSellerProducts || []).forEach((p) => {
+      if (p && !deletedIds.has(String(p.productId || p.id))) {
+        const idKey = String(p.productId || p.id);
+        map.set(idKey, { ...p, approvalStatus: "APPROVED", status: "APPROVED", active: true });
+      }
+    });
+
+
+    // Merge local stored products (contains approved seller products)
+    const stored = getStoredProducts();
+    (stored || []).forEach((raw) => {
+      const p = normalizeProduct(raw, subcategories, categories);
+      if (p && !deletedIds.has(String(p.productId || p.id))) {
+        const idKey = String(p.productId || p.id);
+        if (!map.has(idKey)) {
+          map.set(idKey, p);
+        } else if (p.approvalStatus === "APPROVED" || p.status === "APPROVED") {
+          map.set(idKey, { ...map.get(idKey), ...p, approvalStatus: "APPROVED", status: "APPROVED", active: true });
+        }
+      }
+    });
+
+    let merged = Array.from(map.values());
+
+    // Apply status filter if active
+    if (filters.status && filters.status !== "ALL") {
+      merged = merged.filter((p) => {
+        const st = String(p.status || p.approvalStatus || "").toUpperCase();
+        if (filters.status === "APPROVED") return st === "APPROVED" || st === "ACTIVE";
+        if (filters.status === "PENDING") return st === "PENDING";
+        if (filters.status === "REJECTED") return st === "REJECTED";
+        if (filters.status === "INACTIVE") return st === "INACTIVE" || p.active === false;
+        return st === filters.status.toUpperCase();
+      });
+    }
+
+    if (filters.categoryId && filters.categoryId !== "ALL") {
+      merged = merged.filter((p) => Number(p.categoryId) === Number(filters.categoryId));
+    }
+    if (filters.subcategoryId && filters.subcategoryId !== "ALL") {
+      merged = merged.filter((p) => Number(p.subcategoryId) === Number(filters.subcategoryId));
+    }
+    if (filters.brandId && filters.brandId !== "ALL") {
+      merged = merged.filter((p) => Number(p.brandId) === Number(filters.brandId));
+    }
+    if (filters.search && String(filters.search).trim()) {
+      const q = String(filters.search).trim().toLowerCase();
+      merged = merged.filter((p) => {
+        const text = `${p.name || ""} ${p.title || ""} ${p.sku || ""} ${p.brandName || p.brand || ""} ${p.sellerName || p.seller?.name || ""} ${p.categoryName || p.category || ""} ${p.subcategoryName || ""}`.toLowerCase();
+        return text.includes(q);
+      });
+    }
+
+    return merged;
+  };
+
+  // 1. Primary: Dedicated Admin Products API (GET /api/admin/products)
+  try {
+    const adminRes = await api.get(`/admin/products${queryStr}`);
+    const rawList = list(adminRes.data);
+    const pData = adminRes.data?.pagination || adminRes.data?.data?.pagination || {};
+
+    const normalizedList = (Array.isArray(rawList) ? rawList : [])
+      .map((raw) => normalizeProduct(raw, subcategories, categories))
+      .filter((p) => p && !deletedIds.has(String(p.productId || p.id)));
+
+    const mergedList = mergeSellerCatalog(normalizedList);
+    const totalCount = Math.max(Number(pData.totalCount ?? (Array.isArray(rawList) ? rawList.length : 0)), mergedList.length);
+    const totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
+
+    if (isPaginated) {
+      return {
+        products: mergedList.slice((pageNum - 1) * limitNum, pageNum * limitNum),
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalCount,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1,
+        },
+      };
+    }
+    return mergedList;
+  } catch (err) {
+    // Fall back to getProducts & pending queue merge
+  }
+
+  // 2. Fallback: Base Customer Products
+  const baseResult = await getProducts(filters);
+  let baseProducts = isPaginated ? (baseResult?.products || []) : (Array.isArray(baseResult) ? baseResult : []);
+
+  // Merge seller catalog into fallback results
+  const mergedList = mergeSellerCatalog(baseProducts);
+  if (isPaginated) {
+    const totalCount = Math.max(baseResult?.pagination?.totalCount || 0, mergedList.length);
+    const totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
+    return {
+      products: mergedList.slice((pageNum - 1) * limitNum, pageNum * limitNum),
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalCount,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
+    };
+  }
+
+  return mergedList;
 };
 
 /**
@@ -910,51 +947,162 @@ export const getSearchSuggestions = async (query = "") => {
 };
 
 /**
- * 2. Get Pending Products (GET /api/admin/products/pending or fallbacks)
+ * Predicate to verify if a product was added by an external third-party seller
+ * and exclude Admin / In-House / Platform catalog products (e.g., HinchStore).
+ */
+export const isSellerAddedProduct = (product) => {
+  if (!product) return false;
+
+  // 1. Explicit admin product indicators
+  if (
+    product.isAdminProduct === true ||
+    product.addedByAdmin === true ||
+    product.isAdmin === true ||
+    product.source === "admin" ||
+    product.createdRole === "ADMIN" ||
+    product.role === "ADMIN"
+  ) {
+    return false;
+  }
+
+  // 2. If it is PENDING approval, it is DEFINITIVELY a seller-added product
+  const rawStatus = String(
+    product.approvalStatus ||
+    product.approval_status ||
+    product.status ||
+    product.review_status ||
+    product.state ||
+    ""
+  ).toUpperCase();
+  if (rawStatus === "PENDING" || rawStatus === "PENDING_APPROVAL" || rawStatus === "RESUBMITTED" || rawStatus === "UNDER_REVIEW" || rawStatus === "SUBMITTED") {
+    return true;
+  }
+
+  // 3. Resolve seller ID (external seller id > 0)
+  const sellerId =
+    product.sellerId ??
+    product.seller_id ??
+    product.vendorId ??
+    product.vendor_id ??
+    product.seller?.id ??
+    product.seller?.sellerId ??
+    product.vendor?.id ??
+    product.vendor?.vendorId ??
+    null;
+
+  if (sellerId !== null && sellerId !== undefined && sellerId !== 0 && String(sellerId).toLowerCase() !== "admin") {
+    return true;
+  }
+
+  // 4. Resolve seller name (do not check storeName, since storeName is always HinchStore)
+  const rawSellerName = String(
+    product.seller?.companyName ||
+    product.seller?.businessName ||
+    product.seller?.name ||
+    product.sellerName ||
+    product.vendorName ||
+    product.vendor?.companyName ||
+    product.vendor?.name ||
+    ""
+  ).trim();
+
+  const lowerSeller = rawSellerName.toLowerCase();
+
+  if (
+    rawSellerName &&
+    lowerSeller !== "hinchstore" &&
+    lowerSeller !== "hinch store" &&
+    lowerSeller !== "hinchmart" &&
+    lowerSeller !== "hinch mart" &&
+    lowerSeller !== "admin" &&
+    lowerSeller !== "superadmin" &&
+    lowerSeller !== "direct supplier" &&
+    lowerSeller !== "in-house" &&
+    lowerSeller !== "inhouse"
+  ) {
+    return true;
+  }
+
+  if (product.source === "seller" || product.createdRole === "SELLER" || product.role === "SELLER") {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * 2. Get Pending Products (GET /api/admin/products/pending with fast targeted fallbacks)
+ * Strictly filters to return ONLY seller-submitted products awaiting approval.
  */
 export const getPendingProducts = async (options = {}) => {
-  const subcategories = getStoredSubcategories();
-  const categories = getStoredCategories();
-  const deletedIds = getDeletedProductIds();
+  const { bypassCache = false } = options;
+  if (bypassCache) {
+    invalidateRequest("pending_products");
+  }
 
-  const queryParams = new URLSearchParams();
-  if (options.page !== undefined) queryParams.append("page", options.page);
-  if (options.size) queryParams.append("size", options.size);
-  const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : "";
+  return cachedRequest(
+    "pending_products",
+    async () => {
+      const subcategories = getStoredSubcategories();
+      const categories = getStoredCategories();
+      const deletedIds = getDeletedProductIds();
 
-  // 1. Primary Admin Pending Products Endpoint: GET /api/admin/products/pending
-  try {
-    const res = await api.get(`/admin/products/pending${queryStr}`);
-    const items = list(res.data);
-    if (Array.isArray(items)) {
       const map = new Map();
-      items.forEach((raw) => {
-        const p = normalizeProduct(raw, subcategories, categories);
-        if (p && !deletedIds.has(String(p.productId || p.id))) {
-          map.set(String(p.productId || p.id), p);
-        }
-      });
-      return Array.from(map.values());
-    }
-  } catch {}
 
-  // 2. Secondary fallback: GET /api/admin/products?status=PENDING
-  try {
-    const res = await api.get(`/admin/products`, { params: { ...options, status: "PENDING" } });
-    const items = list(res.data);
-    if (Array.isArray(items)) {
-      const map = new Map();
-      items.forEach((raw) => {
-        const p = normalizeProduct(raw, subcategories, categories);
-        if (p && !deletedIds.has(String(p.productId || p.id))) {
-          map.set(String(p.productId || p.id), p);
-        }
-      });
-      return Array.from(map.values());
-    }
-  } catch {}
+      const collectPending = (listItems) => {
+        (listItems || []).forEach((raw) => {
+          const p = normalizeProduct(raw, subcategories, categories);
+          if (p && !deletedIds.has(String(p.productId || p.id)) && isSellerAddedProduct(p)) {
+            const st = String(p.status || p.approvalStatus || "").toUpperCase();
+            if (st === "PENDING" || st === "PENDING_APPROVAL" || st === "RESUBMITTED" || st === "UNDER_REVIEW" || st === "SUBMITTED") {
+              map.set(String(p.productId || p.id), p);
+            }
+          }
+        });
+      };
 
-  return [];
+      // 1. Primary: Dedicated pending moderation endpoint
+      let foundItems = false;
+      try {
+        const res = await api.get("/admin/products/pending", { params: { page: 0, size: 100, limit: 100 } });
+        const items = list(res.data);
+        if (Array.isArray(items) && items.length > 0) {
+          collectPending(items);
+          foundItems = true;
+        }
+      } catch {
+        // Fallback below if endpoint not supported
+      }
+
+      // 2. Secondary fallback: Query admin products with status=PENDING
+      if (!foundItems || map.size === 0) {
+        try {
+          const res = await api.get("/admin/products", { params: { status: "PENDING", page: 0, size: 100, limit: 100 } });
+          const items = list(res.data);
+          if (Array.isArray(items) && items.length > 0) {
+            collectPending(items);
+            foundItems = true;
+          }
+        } catch {
+          try {
+            const res = await api.get("/products", { params: { status: "PENDING", page: 0, size: 100, limit: 100 } });
+            const items = list(res.data);
+            if (Array.isArray(items) && items.length > 0) {
+              collectPending(items);
+              foundItems = true;
+            }
+          } catch {}
+        }
+      }
+
+      // 3. Fallback: Check local store for any pending seller items (offline/mock)
+      const stored = getStoredProducts();
+      collectPending(stored);
+
+      return Array.from(map.values());
+    },
+    8000
+  );
 };
 
 /**
@@ -978,7 +1126,7 @@ export const getProductById = async (id) => {
     } catch {}
   }
 
-  const all = await getProducts();
+  const all = getStoredProducts();
   return all.find((p) => String(p.id) === String(id) || String(p.productId) === String(id)) || null;
 };
 
@@ -1003,23 +1151,33 @@ export const approveProduct = async (id, commentOrProduct = {}) => {
 
   const requestBody = {
     status: "APPROVED",
+    active: true,
     comment,
   };
 
   try {
     // Primary: PATCH /api/admin/products/{id}/approve
-    const response = await api.patch(`/admin/products/${id}/approve`, requestBody, { params: { status: "APPROVED" } });
+    const response = await api.patch(`/admin/products/${id}/approve`, requestBody, { params: { status: "APPROVED", active: true } });
     const data = response.data?.data || response.data?.product || response.data;
     if (data) {
-      approved = normalizeProduct(data, subcategories, categories);
+      approved = normalizeProduct({ ...data, active: true }, subcategories, categories);
+    }
+
+    // Ensure backend activates the product if the approval endpoint didn't flip active flag
+    try {
+      await api.patch(`/admin/products/${id}/status`, { status: "ACTIVE", active: true });
+    } catch {
+      try {
+        await api.patch(`/products/${id}/activate`);
+      } catch {}
     }
   } catch (patchErr) {
     try {
       // Secondary: POST /api/admin/products/{id}/approve
-      const response = await api.post(`/admin/products/${id}/approve`, requestBody, { params: { status: "APPROVED" } });
+      const response = await api.post(`/admin/products/${id}/approve`, requestBody, { params: { status: "APPROVED", active: true } });
       const data = response.data?.data || response.data?.product || response.data;
       if (data) {
-        approved = normalizeProduct(data, subcategories, categories);
+        approved = normalizeProduct({ ...data, active: true }, subcategories, categories);
       }
     } catch (err1) {
       try {
@@ -1054,6 +1212,7 @@ export const approveProduct = async (id, commentOrProduct = {}) => {
 
   dispatchDataUpdate("products", "UPDATE", approved);
   invalidateRequest("products");
+  invalidateRequest("pending_products");
 
   return approved;
 };
@@ -1129,6 +1288,7 @@ export const rejectProduct = async (id, reason = "Product details incomplete", p
 
   dispatchDataUpdate("products", "UPDATE", rejected);
   invalidateRequest("products");
+  invalidateRequest("pending_products");
 
   return rejected;
 };

@@ -57,16 +57,136 @@ export default function HotDeals() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [addDisplayOrder, setAddDisplayOrder] = useState("");
   const [addActive, setAddActive] = useState(true);
+  const [addDiscountMode, setAddDiscountMode] = useState("DEFAULT"); // DEFAULT | PERCENTAGE | DEAL_PRICE
+  const [addDiscountPercentage, setAddDiscountPercentage] = useState("");
+  const [addDealPrice, setAddDealPrice] = useState("");
   const [addConflictError, setAddConflictError] = useState("");
   const [submittingAdd, setSubmittingAdd] = useState(false);
 
   // Edit Deal Modal Form State
   const [editDisplayOrder, setEditDisplayOrder] = useState(1);
   const [editActive, setEditActive] = useState(true);
+  const [editDiscountMode, setEditDiscountMode] = useState("DEFAULT"); // DEFAULT | PERCENTAGE | DEAL_PRICE
+  const [editDiscountPercentage, setEditDiscountPercentage] = useState("");
+  const [editDealPrice, setEditDealPrice] = useState("");
   const [submittingEdit, setSubmittingEdit] = useState(false);
 
   // Reorder loading state
   const [reordering, setReordering] = useState(false);
+
+  // Live calculation preview helper for discount configuration (V29 Architecture)
+  const computeDealPreview = (product, mode, discPercent, dPrice) => {
+    if (!product) return null;
+    const basePrice = Number(product.price || 0);
+    const mrp = product.mrp != null && !isNaN(Number(product.mrp)) ? Number(product.mrp) : null;
+
+    if (mode === "PERCENTAGE") {
+      const pct = parseFloat(discPercent);
+      if (isNaN(pct) || pct <= 0) {
+        return { effectivePrice: basePrice, discountPercentage: null, savings: 0, error: null };
+      }
+      if (pct >= 100) {
+        return {
+          effectivePrice: 0,
+          discountPercentage: 100,
+          savings: basePrice,
+          error: "Discount percentage cannot be 100% or greater",
+        };
+      }
+      const calcDealPrice = Math.max(0, Number((basePrice * (1 - pct / 100)).toFixed(2)));
+      const savings = Number((basePrice - calcDealPrice).toFixed(2));
+      return { effectivePrice: calcDealPrice, discountPercentage: pct, savings, error: null };
+    }
+
+    if (mode === "DEAL_PRICE") {
+      const priceVal = parseFloat(dPrice);
+      if (isNaN(priceVal) || priceVal <= 0) {
+        return { effectivePrice: basePrice, discountPercentage: null, savings: 0, error: null };
+      }
+      if (priceVal >= basePrice) {
+        return {
+          effectivePrice: priceVal,
+          discountPercentage: 0,
+          savings: 0,
+          error: `Deal price (₹${priceVal}) must be strictly less than product price (₹${basePrice})`,
+        };
+      }
+      const pct = Number((((basePrice - priceVal) / basePrice) * 100).toFixed(1));
+      const savings = Number((basePrice - priceVal).toFixed(2));
+      return { effectivePrice: priceVal, discountPercentage: pct, savings, error: null };
+    }
+
+    // DEFAULT mode: No custom deal discount is configured
+    return null;
+  };
+
+  const addPreview = useMemo(() => {
+    return computeDealPreview(selectedProduct, addDiscountMode, addDiscountPercentage, addDealPrice);
+  }, [selectedProduct, addDiscountMode, addDiscountPercentage, addDealPrice]);
+
+  const editPreview = useMemo(() => {
+    return computeDealPreview(
+      showEditModal?.product,
+      editDiscountMode,
+      editDiscountPercentage,
+      editDealPrice
+    );
+  }, [showEditModal, editDiscountMode, editDiscountPercentage, editDealPrice]);
+
+  // Display price & discount resolver for Cards and Tables
+  const getDealDisplayInfo = (deal) => {
+    const prod = deal.product || {};
+    const basePrice = Number(prod.price || 0);
+    const mrp = prod.mrp != null && !isNaN(Number(prod.mrp)) ? Number(prod.mrp) : null;
+    const dealPrice = deal.dealPrice != null && !isNaN(Number(deal.dealPrice)) ? Number(deal.dealPrice) : null;
+    const discountPercentage =
+      deal.discountPercentage != null && !isNaN(Number(deal.discountPercentage))
+        ? Number(deal.discountPercentage)
+        : null;
+
+    if (dealPrice != null) {
+      const discount =
+        discountPercentage != null && discountPercentage > 0
+          ? discountPercentage
+          : basePrice > dealPrice
+          ? Number((((basePrice - dealPrice) / basePrice) * 100).toFixed(1))
+          : null;
+      return {
+        effectivePrice: dealPrice,
+        crossedPrice: basePrice > dealPrice ? basePrice : (mrp && mrp > dealPrice ? mrp : null),
+        discountPercentage: discount,
+        isSpecialDeal: true,
+      };
+    }
+
+    if (discountPercentage != null && discountPercentage > 0) {
+      const calcDealPrice = Math.max(0, Number((basePrice * (1 - discountPercentage / 100)).toFixed(2)));
+      return {
+        effectivePrice: calcDealPrice,
+        crossedPrice: basePrice,
+        discountPercentage,
+        isSpecialDeal: true,
+      };
+    }
+
+    const isSyntheticMrp = mrp && basePrice > 0 && Math.round((mrp / basePrice) * 100) / 100 === 1.15;
+    if (mrp && mrp > basePrice && !isSyntheticMrp) {
+      const pct = Math.round(((mrp - basePrice) / mrp) * 100);
+      return {
+        effectivePrice: basePrice,
+        crossedPrice: mrp,
+        discountPercentage: pct,
+        isSpecialDeal: false,
+      };
+    }
+
+    return {
+      effectivePrice: basePrice,
+      crossedPrice: null,
+      discountPercentage: null,
+      isSpecialDeal: false,
+    };
+  };
 
   // Load Hot Deals
   const fetchDeals = async (showSpinner = true) => {
@@ -123,6 +243,9 @@ export default function HotDeals() {
     setProductSearchQuery("");
     setAddConflictError("");
     setAddActive(true);
+    setAddDiscountMode("DEFAULT");
+    setAddDiscountPercentage("");
+    setAddDealPrice("");
     // Suggest next available display order
     const nextOrder = hotDeals.length > 0 ? Math.max(...hotDeals.map((d) => d.displayOrder || 0)) + 1 : 1;
     setAddDisplayOrder(nextOrder);
@@ -148,14 +271,29 @@ export default function HotDeals() {
       return;
     }
 
+    if (addPreview?.error) {
+      toast.error(addPreview.error);
+      return;
+    }
+
     setSubmittingAdd(true);
     setAddConflictError("");
+
+    let discPct = undefined;
+    let dPrice = undefined;
+    if (addDiscountMode === "PERCENTAGE" && addDiscountPercentage) {
+      discPct = Number(addDiscountPercentage);
+    } else if (addDiscountMode === "DEAL_PRICE" && addDealPrice) {
+      dPrice = Number(addDealPrice);
+    }
 
     try {
       await addHotDeal({
         productId: selectedProduct.productId,
         displayOrder: addDisplayOrder ? Number(addDisplayOrder) : undefined,
         active: addActive,
+        discountPercentage: discPct,
+        dealPrice: dPrice,
         productDetails: selectedProduct,
       });
 
@@ -181,6 +319,20 @@ export default function HotDeals() {
     setShowEditModal(deal);
     setEditDisplayOrder(deal.displayOrder);
     setEditActive(deal.active);
+
+    if (deal.dealPrice != null) {
+      setEditDiscountMode("DEAL_PRICE");
+      setEditDealPrice(deal.dealPrice);
+      setEditDiscountPercentage("");
+    } else if (deal.discountPercentage != null && deal.discountPercentage > 0) {
+      setEditDiscountMode("PERCENTAGE");
+      setEditDiscountPercentage(deal.discountPercentage);
+      setEditDealPrice("");
+    } else {
+      setEditDiscountMode("DEFAULT");
+      setEditDiscountPercentage("");
+      setEditDealPrice("");
+    }
   };
 
   // Submit Edit Hot Deal (Endpoint 5)
@@ -188,11 +340,27 @@ export default function HotDeals() {
     e.preventDefault();
     if (!showEditModal) return;
 
+    if (editPreview?.error) {
+      toast.error(editPreview.error);
+      return;
+    }
+
     setSubmittingEdit(true);
+
+    let discPct = null;
+    let dPrice = null;
+    if (editDiscountMode === "PERCENTAGE" && editDiscountPercentage) {
+      discPct = Number(editDiscountPercentage);
+    } else if (editDiscountMode === "DEAL_PRICE" && editDealPrice) {
+      dPrice = Number(editDealPrice);
+    }
+
     try {
       await updateHotDeal(showEditModal.id, {
         displayOrder: Number(editDisplayOrder),
         active: editActive,
+        discountPercentage: discPct,
+        dealPrice: dPrice,
       });
 
       toast.success("Hot deal updated successfully!");
@@ -506,10 +674,7 @@ export default function HotDeals() {
         <div className="hot-deals-grid">
           {filteredDeals.map((deal, index) => {
             const prod = deal.product || {};
-            const discountPercent =
-              prod.mrp && prod.price && prod.mrp > prod.price
-                ? Math.round(((prod.mrp - prod.price) / prod.mrp) * 100)
-                : 0;
+            const displayInfo = getDealDisplayInfo(deal);
 
             return (
               <div
@@ -558,17 +723,18 @@ export default function HotDeals() {
                   )}
 
                   <div className="hot-deal-pricing-row">
-                    <span className="hot-deal-price">
-                      ₹{Number(prod.price || 0).toLocaleString("en-IN")}
+                    <span className={`hot-deal-price ${displayInfo.isSpecialDeal ? "special" : ""}`}>
+                      ₹{Number(displayInfo.effectivePrice || 0).toLocaleString("en-IN")}
                     </span>
-                    {prod.mrp && prod.mrp > prod.price && (
+                    {displayInfo.crossedPrice && (
                       <span className="hot-deal-mrp">
-                        ₹{Number(prod.mrp).toLocaleString("en-IN")}
+                        ₹{Number(displayInfo.crossedPrice).toLocaleString("en-IN")}
                       </span>
                     )}
-                    {discountPercent > 0 && (
-                      <span className="hot-deal-discount-badge">
-                        {discountPercent}% OFF
+                    {displayInfo.discountPercentage != null && displayInfo.discountPercentage > 0 && (
+                      <span className={displayInfo.isSpecialDeal ? "hot-deal-special-badge" : "hot-deal-discount-badge"}>
+                        {displayInfo.isSpecialDeal && <Flame size={11} />}
+                        {Math.round(displayInfo.discountPercentage)}% OFF
                       </span>
                     )}
                   </div>
@@ -652,10 +818,7 @@ export default function HotDeals() {
             <tbody>
               {filteredDeals.map((deal, index) => {
                 const prod = deal.product || {};
-                const discountPercent =
-                  prod.mrp && prod.price && prod.mrp > prod.price
-                    ? Math.round(((prod.mrp - prod.price) / prod.mrp) * 100)
-                    : 0;
+                const displayInfo = getDealDisplayInfo(deal);
 
                 return (
                   <tr key={deal.id}>
@@ -730,10 +893,10 @@ export default function HotDeals() {
 
                     <td>
                       <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                        <strong style={{ color: "#0f172a" }}>
-                          ₹{Number(prod.price || 0).toLocaleString("en-IN")}
+                        <strong style={{ color: displayInfo.isSpecialDeal ? "#ea580c" : "#0f172a" }}>
+                          ₹{Number(displayInfo.effectivePrice || 0).toLocaleString("en-IN")}
                         </strong>
-                        {prod.mrp && prod.mrp > prod.price && (
+                        {displayInfo.crossedPrice && (
                           <span
                             style={{
                               fontSize: "12px",
@@ -741,12 +904,13 @@ export default function HotDeals() {
                               textDecoration: "line-through",
                             }}
                           >
-                            ₹{Number(prod.mrp).toLocaleString("en-IN")}
+                            ₹{Number(displayInfo.crossedPrice).toLocaleString("en-IN")}
                           </span>
                         )}
-                        {discountPercent > 0 && (
-                          <span className="hot-deal-discount-badge">
-                            {discountPercent}%
+                        {displayInfo.discountPercentage != null && displayInfo.discountPercentage > 0 && (
+                          <span className={displayInfo.isSpecialDeal ? "hot-deal-special-badge" : "hot-deal-discount-badge"}>
+                            {displayInfo.isSpecialDeal && <Flame size={10} />}
+                            {Math.round(displayInfo.discountPercentage)}%
                           </span>
                         )}
                       </div>
@@ -1079,7 +1243,172 @@ export default function HotDeals() {
                   )}
                 </div>
 
-                {/* Step 2: Display Order (Optional) */}
+                {/* Step 2: Discount & Deal Pricing (V29 Flexible Architecture) */}
+                <div>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      color: "#334155",
+                      marginBottom: "8px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Tag size={13} style={{ color: "#ea580c" }} />
+                      2. Deal Pricing & Discount Format
+                    </span>
+                    <span style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", textTransform: "none" }}>
+                      Optional
+                    </span>
+                  </label>
+
+                  {/* Mode Selector */}
+                  <div className="deal-mode-selector">
+                    <button
+                      type="button"
+                      className={`deal-mode-btn ${addDiscountMode === "DEFAULT" ? "active" : ""}`}
+                      onClick={() => {
+                        setAddDiscountMode("DEFAULT");
+                        setAddDiscountPercentage("");
+                        setAddDealPrice("");
+                      }}
+                    >
+                      <span>Default / MRP</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`deal-mode-btn ${addDiscountMode === "PERCENTAGE" ? "active" : ""}`}
+                      onClick={() => {
+                        setAddDiscountMode("PERCENTAGE");
+                        setAddDealPrice("");
+                      }}
+                    >
+                      <span>% Discount</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`deal-mode-btn ${addDiscountMode === "DEAL_PRICE" ? "active" : ""}`}
+                      onClick={() => {
+                        setAddDiscountMode("DEAL_PRICE");
+                        setAddDiscountPercentage("");
+                      }}
+                    >
+                      <span>₹ Deal Price</span>
+                    </button>
+                  </div>
+
+                  {/* Percentage Input */}
+                  {addDiscountMode === "PERCENTAGE" && (
+                    <div style={{ marginTop: "10px" }}>
+                      <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", marginBottom: "4px", display: "block" }}>
+                        Discount Percentage (% OFF) *
+                      </label>
+                      <div style={{ position: "relative" }}>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          max="99.9"
+                          className="product-search-box"
+                          style={{ width: "100%", padding: "10px 14px", paddingRight: "36px", fontSize: "14px" }}
+                          value={addDiscountPercentage}
+                          onChange={(e) => setAddDiscountPercentage(e.target.value)}
+                          placeholder="e.g. 25.0"
+                          required
+                        />
+                        <span style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "#64748b", fontWeight: "700", fontSize: "14px" }}>
+                          %
+                        </span>
+                      </div>
+                      <small style={{ color: "#64748b", fontSize: "11px", marginTop: "3px", display: "block" }}>
+                        Backend calculates: dealPrice = price - (price * discount / 100).
+                      </small>
+                    </div>
+                  )}
+
+                  {/* Deal Price Input */}
+                  {addDiscountMode === "DEAL_PRICE" && (
+                    <div style={{ marginTop: "10px" }}>
+                      <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", marginBottom: "4px", display: "block" }}>
+                        Special Deal Price (₹) *
+                      </label>
+                      <div style={{ position: "relative" }}>
+                        <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "#64748b", fontWeight: "700", fontSize: "14px" }}>
+                          ₹
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          className="product-search-box"
+                          style={{ width: "100%", padding: "10px 14px", paddingLeft: "28px", fontSize: "14px" }}
+                          value={addDealPrice}
+                          onChange={(e) => setAddDealPrice(e.target.value)}
+                          placeholder={selectedProduct ? `Must be < ₹${Number(selectedProduct.price).toLocaleString("en-IN")}` : "e.g. 3200.00"}
+                          required
+                        />
+                      </div>
+                      <small style={{ color: "#64748b", fontSize: "11px", marginTop: "3px", display: "block" }}>
+                        Backend calculates: discountPercentage = ((price - dealPrice) / price) * 100.
+                      </small>
+                    </div>
+                  )}
+
+                  {/* Default info */}
+                  {addDiscountMode === "DEFAULT" && (
+                    <div style={{ marginTop: "8px", padding: "10px 12px", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "8px", fontSize: "12px", color: "#64748b", lineHeight: 1.4 }}>
+                      ℹ️ <strong>Standard Pricing:</strong> Uses product's genuine manufacturer MRP (if available) or standard selling price with <strong>no discount badge</strong>.
+                    </div>
+                  )}
+
+                  {/* Live Calculation Preview Box */}
+                  {selectedProduct && addPreview && (
+                    <div className={`deal-preview-box ${addPreview.error ? "has-error" : ""}`}>
+                      {addPreview.error ? (
+                        <div style={{ color: "#dc2626", fontSize: "12px", fontWeight: "600", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <AlertTriangle size={14} />
+                          {addPreview.error}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="deal-preview-row">
+                            <span className="deal-preview-label">Original Selling Price:</span>
+                            <span className="deal-preview-value">₹{Number(selectedProduct.price || 0).toLocaleString("en-IN")}</span>
+                          </div>
+                          <div className="deal-preview-row">
+                            <span className="deal-preview-label">Buyer Deal Price:</span>
+                            <span className="deal-preview-value" style={{ color: "#ea580c", fontSize: "15px" }}>
+                              ₹{Number(addPreview.effectivePrice || 0).toLocaleString("en-IN")}
+                            </span>
+                          </div>
+                          {addPreview.discountPercentage != null && addPreview.discountPercentage > 0 && (
+                            <div className="deal-preview-row">
+                              <span className="deal-preview-label">Calculated Discount:</span>
+                              <span className="deal-preview-badge">
+                                {addPreview.discountPercentage}% OFF
+                              </span>
+                            </div>
+                          )}
+                          {addPreview.savings > 0 && (
+                            <div className="deal-preview-row" style={{ borderTop: "1px dashed #fed7aa", paddingTop: "4px", marginTop: "2px" }}>
+                              <span className="deal-preview-label" style={{ color: "#166534" }}>Buyer Savings:</span>
+                              <span className="deal-preview-value" style={{ color: "#166534" }}>
+                                ₹{Number(addPreview.savings).toLocaleString("en-IN")}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Step 3: Display Order (Optional) */}
                 <div>
                   <label
                     style={{
@@ -1092,7 +1421,7 @@ export default function HotDeals() {
                       letterSpacing: "0.5px",
                     }}
                   >
-                    2. Display Order (Optional)
+                    3. Display Order (Optional)
                   </label>
                   <input
                     type="number"
@@ -1108,7 +1437,7 @@ export default function HotDeals() {
                   </small>
                 </div>
 
-                {/* Step 3: Active Status (Optional) */}
+                {/* Step 4: Active Status (Optional) */}
                 <div>
                   <label
                     style={{
@@ -1121,7 +1450,7 @@ export default function HotDeals() {
                       letterSpacing: "0.5px",
                     }}
                   >
-                    3. Deal Visibility
+                    4. Deal Visibility
                   </label>
                   <div
                     style={{
@@ -1236,6 +1565,171 @@ export default function HotDeals() {
                       Product ID: #{showEditModal.productId}
                     </span>
                   </div>
+                </div>
+
+                {/* Deal Pricing & Discount Format (V29 Flexible Architecture) */}
+                <div>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      color: "#334155",
+                      marginBottom: "8px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Tag size={13} style={{ color: "#ea580c" }} />
+                      Deal Pricing & Discount Format
+                    </span>
+                    <span style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", textTransform: "none" }}>
+                      Optional
+                    </span>
+                  </label>
+
+                  {/* Mode Selector */}
+                  <div className="deal-mode-selector">
+                    <button
+                      type="button"
+                      className={`deal-mode-btn ${editDiscountMode === "DEFAULT" ? "active" : ""}`}
+                      onClick={() => {
+                        setEditDiscountMode("DEFAULT");
+                        setEditDiscountPercentage("");
+                        setEditDealPrice("");
+                      }}
+                    >
+                      <span>Default / MRP</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`deal-mode-btn ${editDiscountMode === "PERCENTAGE" ? "active" : ""}`}
+                      onClick={() => {
+                        setEditDiscountMode("PERCENTAGE");
+                        setEditDealPrice("");
+                      }}
+                    >
+                      <span>% Discount</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`deal-mode-btn ${editDiscountMode === "DEAL_PRICE" ? "active" : ""}`}
+                      onClick={() => {
+                        setEditDiscountMode("DEAL_PRICE");
+                        setEditDiscountPercentage("");
+                      }}
+                    >
+                      <span>₹ Deal Price</span>
+                    </button>
+                  </div>
+
+                  {/* Percentage Input */}
+                  {editDiscountMode === "PERCENTAGE" && (
+                    <div style={{ marginTop: "10px" }}>
+                      <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", marginBottom: "4px", display: "block" }}>
+                        Discount Percentage (% OFF) *
+                      </label>
+                      <div style={{ position: "relative" }}>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          max="99.9"
+                          className="product-search-box"
+                          style={{ width: "100%", padding: "10px 14px", paddingRight: "36px", fontSize: "14px" }}
+                          value={editDiscountPercentage}
+                          onChange={(e) => setEditDiscountPercentage(e.target.value)}
+                          placeholder="e.g. 25.0"
+                          required
+                        />
+                        <span style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "#64748b", fontWeight: "700", fontSize: "14px" }}>
+                          %
+                        </span>
+                      </div>
+                      <small style={{ color: "#64748b", fontSize: "11px", marginTop: "3px", display: "block" }}>
+                        Backend calculates: dealPrice = price - (price * discount / 100).
+                      </small>
+                    </div>
+                  )}
+
+                  {/* Deal Price Input */}
+                  {editDiscountMode === "DEAL_PRICE" && (
+                    <div style={{ marginTop: "10px" }}>
+                      <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", marginBottom: "4px", display: "block" }}>
+                        Special Deal Price (₹) *
+                      </label>
+                      <div style={{ position: "relative" }}>
+                        <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "#64748b", fontWeight: "700", fontSize: "14px" }}>
+                          ₹
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          className="product-search-box"
+                          style={{ width: "100%", padding: "10px 14px", paddingLeft: "28px", fontSize: "14px" }}
+                          value={editDealPrice}
+                          onChange={(e) => setEditDealPrice(e.target.value)}
+                          placeholder={showEditModal.product ? `Must be < ₹${Number(showEditModal.product.price).toLocaleString("en-IN")}` : "e.g. 3200.00"}
+                          required
+                        />
+                      </div>
+                      <small style={{ color: "#64748b", fontSize: "11px", marginTop: "3px", display: "block" }}>
+                        Backend calculates: discountPercentage = ((price - dealPrice) / price) * 100.
+                      </small>
+                    </div>
+                  )}
+
+                  {/* Default info */}
+                  {editDiscountMode === "DEFAULT" && (
+                    <div style={{ marginTop: "8px", padding: "10px 12px", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "8px", fontSize: "12px", color: "#64748b", lineHeight: 1.4 }}>
+                      ℹ️ <strong>Standard Pricing:</strong> Uses product's genuine manufacturer MRP (if available) or standard selling price with <strong>no discount badge</strong>.
+                    </div>
+                  )}
+
+                  {/* Live Calculation Preview Box */}
+                  {showEditModal.product && editPreview && (
+                    <div className={`deal-preview-box ${editPreview.error ? "has-error" : ""}`}>
+                      {editPreview.error ? (
+                        <div style={{ color: "#dc2626", fontSize: "12px", fontWeight: "600", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <AlertTriangle size={14} />
+                          {editPreview.error}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="deal-preview-row">
+                            <span className="deal-preview-label">Original Selling Price:</span>
+                            <span className="deal-preview-value">₹{Number(showEditModal.product.price || 0).toLocaleString("en-IN")}</span>
+                          </div>
+                          <div className="deal-preview-row">
+                            <span className="deal-preview-label">Buyer Deal Price:</span>
+                            <span className="deal-preview-value" style={{ color: "#ea580c", fontSize: "15px" }}>
+                              ₹{Number(editPreview.effectivePrice || 0).toLocaleString("en-IN")}
+                            </span>
+                          </div>
+                          {editPreview.discountPercentage != null && editPreview.discountPercentage > 0 && (
+                            <div className="deal-preview-row">
+                              <span className="deal-preview-label">Calculated Discount:</span>
+                              <span className="deal-preview-badge">
+                                {editPreview.discountPercentage}% OFF
+                              </span>
+                            </div>
+                          )}
+                          {editPreview.savings > 0 && (
+                            <div className="deal-preview-row" style={{ borderTop: "1px dashed #fed7aa", paddingTop: "4px", marginTop: "2px" }}>
+                              <span className="deal-preview-label" style={{ color: "#166534" }}>Buyer Savings:</span>
+                              <span className="deal-preview-value" style={{ color: "#166534" }}>
+                                ₹{Number(editPreview.savings).toLocaleString("en-IN")}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Display Order */}

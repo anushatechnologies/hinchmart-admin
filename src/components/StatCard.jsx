@@ -10,7 +10,13 @@ export default function StatCard({ title, value, icon, linkTo, color, trend = "+
 
   // Animated count-up effect
   useEffect(() => {
-    const numValue = typeof value === "number" ? value : parseInt(value) || 0;
+    const isNum = typeof value === "number" || (!isNaN(Number(value)) && typeof value !== "boolean" && value !== "" && value !== null && value !== undefined);
+    if (!isNum) {
+      setDisplayValue(value);
+      return;
+    }
+
+    const numValue = Number(value);
     if (hasAnimated.current || numValue === 0) {
       setDisplayValue(numValue);
       return;
@@ -61,7 +67,9 @@ export default function StatCard({ title, value, icon, linkTo, color, trend = "+
       </div>
 
       <div className="stat-content">
-        <span className="stat-value font-mono">{displayValue.toLocaleString("en-IN")}</span>
+        <span className="stat-value font-mono">
+          {typeof displayValue === "number" ? displayValue.toLocaleString("en-IN") : String(displayValue ?? 0)}
+        </span>
       </div>
 
       <div className="stat-footer-row">

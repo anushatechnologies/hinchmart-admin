@@ -18,7 +18,7 @@ export const apiBaseUrl = isExplicitProxy
 
 const api = axios.create({
   baseURL: apiBaseUrl,
-  timeout: 35000,
+  timeout: 12000,
 });
 
 /**
@@ -29,46 +29,65 @@ export const getActiveAccessToken = () => {
   if (typeof window === "undefined") return null;
   return (
     localStorage.getItem("adminToken") ||
+    localStorage.getItem("firebaseToken") ||
     localStorage.getItem("accessToken") ||
     localStorage.getItem("authToken") ||
     null
   );
 };
 
+let authRehydrationPromise = null;
+
 /**
  * Waits briefly for Firebase Auth to finish rehydrating currentUser after page reload.
  */
 const waitForFirebaseUser = () => {
   if (auth.currentUser) return Promise.resolve(auth.currentUser);
+  if (authRehydrationPromise) return authRehydrationPromise;
 
-  return new Promise((resolve) => {
+  authRehydrationPromise = new Promise((resolve) => {
     const timeout = setTimeout(() => {
       unsubscribe();
+      authRehydrationPromise = null;
       resolve(null);
-    }, 2000);
+    }, 1500);
 
     const unsubscribe = auth.onAuthStateChanged((user) => {
       clearTimeout(timeout);
       unsubscribe();
+      authRehydrationPromise = null;
       resolve(user);
     });
   });
+
+  return authRehydrationPromise;
 };
 
 /**
  * Resolves the token to use for outgoing API requests.
- * 1. Prefers the stored HinchMart backend JWT accessToken.
- * 2. Falls back to fresh Firebase ID token if backend token is not yet established.
+ * All admin requests require the standard Firebase Bearer token:
+ * Authorization: Bearer <ADMIN_FIREBASE_ID_TOKEN>
  */
 const resolveRequestToken = async () => {
-  const backendToken = getActiveAccessToken();
-  if (backendToken) return backendToken;
-
-  let currentUser = auth.currentUser;
-  if (!currentUser) {
-    currentUser = await waitForFirebaseUser();
+  // 1. If currentUser is already loaded in Firebase auth instance, get fresh ID token
+  if (auth.currentUser) {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      if (typeof window !== "undefined" && idToken) {
+        localStorage.setItem("firebaseToken", idToken);
+      }
+      return idToken;
+    } catch (err) {
+      console.warn("Failed to retrieve Firebase ID token:", err?.message);
+    }
   }
 
+  // 2. Fast-path: Check stored token in localStorage immediately (0ms delay)
+  const storedToken = getActiveAccessToken();
+  if (storedToken) return storedToken;
+
+  // 3. Fallback: Wait briefly for Firebase Auth to rehydrate
+  const currentUser = await waitForFirebaseUser();
   if (currentUser) {
     try {
       const idToken = await currentUser.getIdToken();
@@ -146,18 +165,24 @@ const processFailedQueue = (error, token = null) => {
 
 let isRedirectingToLogin = false;
 
-const purgeSessionAndRedirect = () => {
-  if (!isRedirectingToLogin && typeof window !== "undefined" && !window.location.pathname.includes("/login")) {
-    isRedirectingToLogin = true;
-    localStorage.removeItem("adminToken");
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("authToken");
-    localStorage.removeItem("firebaseToken");
-    localStorage.removeItem("adminUser");
-    localStorage.removeItem("userRole");
-    setTimeout(() => {
-      window.location.href = "/login";
-    }, 300);
+const purgeSessionAndRedirect = (force = false) => {
+  if (!isRedirectingToLogin && typeof window !== "undefined") {
+    // If we are not forcing and there is already an active token or on login page, avoid reload loop
+    if (!force && (localStorage.getItem("adminToken") || localStorage.getItem("accessToken") || window.location.pathname.includes("/login"))) {
+      return;
+    }
+    if (!window.location.pathname.includes("/login")) {
+      isRedirectingToLogin = true;
+      localStorage.removeItem("adminToken");
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("firebaseToken");
+      localStorage.removeItem("adminUser");
+      localStorage.removeItem("userRole");
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 500);
+    }
   }
 };
 
@@ -271,10 +296,18 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return api(originalRequest);
       } catch (refreshErr) {
-        console.warn("Silent token exchange failed on 401:", refreshErr?.message);
+        console.warn("Silent token exchange notice on 401:", refreshErr?.message);
         processFailedQueue(refreshErr, null);
-        // Step 4: If silent refresh fails, purge saved session and redirect to Login screen
-        purgeSessionAndRedirect();
+        // Notify the application that session token has expired
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("auth:session_expired", {
+              detail: {
+                message: "Your admin session token has expired. Please log in again to renew your access.",
+              },
+            })
+          );
+        }
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;

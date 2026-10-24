@@ -74,7 +74,7 @@ export default function ProductReview() {
   const handleApprove = async () => {
     try {
       setActionLoading(true);
-      await approveProduct(id);
+      await approveProduct(id, product);
       toast.success(`Product "${product.name || "Item"}" approved successfully!`);
       setShowApproveConfirm(false);
       navigate("/admin/product-approvals");
@@ -92,7 +92,7 @@ export default function ProductReview() {
   const handleReject = async () => {
     try {
       setActionLoading(true);
-      await rejectProduct(id, rejectReason);
+      await rejectProduct(id, rejectReason, product);
       toast.warning(`Product "${product.name || "Item"}" was rejected.`);
       setShowRejectModal(false);
       navigate("/admin/product-approvals");
@@ -227,7 +227,7 @@ export default function ProductReview() {
             <Store size={20} className="supplier-icon" />
             <div className="supplier-info-text">
               <span className="sub-label">Supplying Merchant / Seller</span>
-              <strong>{product.seller?.name || product.sellerName || "Direct Supplier"}</strong>
+              <strong>{product.seller?.name || product.sellerName || "—"}</strong>
               {product.seller?.company && <small>{product.seller.company}</small>}
             </div>
           </div>
@@ -241,12 +241,12 @@ export default function ProductReview() {
 
             <div className="spec-card-item">
               <span className="spec-label">HSN Code</span>
-              <span className="spec-value font-mono">{product.hsn || "7214"}</span>
+              <span className="spec-value font-mono">{product.hsn || "—"}</span>
             </div>
 
             <div className="spec-card-item">
               <span className="spec-label">Applicable GST</span>
-              <span className="spec-value">{product.gst || "18%"}</span>
+              <span className="spec-value">{product.gst ? `${product.gst}%` : "—"}</span>
             </div>
 
             <div className="spec-card-item">

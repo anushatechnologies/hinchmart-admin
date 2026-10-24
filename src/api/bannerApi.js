@@ -123,65 +123,7 @@ export const toBannerBackendPayload = (data) => {
   };
 };
 
-export const SEED_BANNERS = [
-  {
-    bannerId: 25,
-    id: 25,
-    title: "Need Materials Urgently on Site?",
-    subtitle: "Order essential building, electrical & plumbing materials before 4 PM for guaranteed next-day delivery.",
-    imageUrl: "https://hinchmart-storage-191481838776-ap-south-2-an.s3.ap-south-2.amazonaws.com/banners/poster_thumb.jpg",
-    videoUrl: "https://hinchmart-storage-191481838776-ap-south-2-an.s3.ap-south-2.amazonaws.com/banners/hinchmart_promo_24h.mp4",
-    posterUrl: "https://hinchmart-storage-191481838776-ap-south-2-an.s3.ap-south-2.amazonaws.com/banners/poster_thumb.jpg",
-    thumbnailUrl: "https://hinchmart-storage-191481838776-ap-south-2-an.s3.ap-south-2.amazonaws.com/banners/poster_thumb.jpg",
-    badge: "24-HOUR DISPATCH",
-    ctaText: "Explore 24H Catalog",
-    linkType: "SCREEN",
-    linkValue: "TwentyFourHourDelivery",
-    position: "HOME_VIDEO",
-    sortOrder: 1,
-    active: true,
-    startDate: "2026-10-01T00:00:00",
-    endDate: "2027-12-31T23:59:59",
-  },
-  {
-    bannerId: 26,
-    id: 26,
-    title: "Build better, source smarter",
-    subtitle: "Verified industrial supply for every ambitious project with live tracking.",
-    imageUrl: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=1400&auto=format&fit=crop&q=85",
-    videoUrl: "",
-    posterUrl: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=1400&auto=format&fit=crop&q=85",
-    thumbnailUrl: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=1400&auto=format&fit=crop&q=85",
-    badge: "PREMIUM SELECTION",
-    ctaText: "Explore Marketplace",
-    linkType: "CATEGORY",
-    linkValue: "civil-structural",
-    position: "HOME_HERO",
-    sortOrder: 2,
-    active: true,
-    startDate: "2026-08-01T00:00:00",
-    endDate: "2027-12-31T23:59:59",
-  },
-  {
-    bannerId: 27,
-    id: 27,
-    title: "The tools that keep work moving",
-    subtitle: "Precision hardware and power tools from trusted B2B sellers with fast doorstep delivery.",
-    imageUrl: "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=1400&auto=format&fit=crop&q=85",
-    videoUrl: "",
-    posterUrl: "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=1400&auto=format&fit=crop&q=85",
-    thumbnailUrl: "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=1400&auto=format&fit=crop&q=85",
-    badge: "PRO HARDWARE",
-    ctaText: "Shop Tools Now",
-    linkType: "CATEGORY",
-    linkValue: "equipment-scaffolding-tools",
-    position: "CATEGORY_SPOTLIGHT",
-    sortOrder: 3,
-    active: true,
-    startDate: "2026-09-01T00:00:00",
-    endDate: "2027-12-31T23:59:59",
-  },
-];
+export const SEED_BANNERS = [];
 
 let inMemoryBanners = null;
 
@@ -196,20 +138,21 @@ export const getStoredBanners = () => {
   if (inMemoryBanners && inMemoryBanners.length > 0) {
     return inMemoryBanners;
   }
-  if (typeof window === "undefined") return SEED_BANNERS;
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY_BANNERS);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        inMemoryBanners = parsed;
+        // Filter out legacy dummy banners (id 26, 27)
+        const cleaned = parsed.filter((b) => b && b.bannerId !== 26 && b.bannerId !== 27 && b.id !== 26 && b.id !== 27);
+        inMemoryBanners = cleaned;
         return inMemoryBanners;
       }
     }
   } catch { }
-  inMemoryBanners = SEED_BANNERS;
-  safeSetBanners(SEED_BANNERS);
-  return SEED_BANNERS;
+  inMemoryBanners = [];
+  return [];
 };
 
 export const setStoredBanners = (banners) => {

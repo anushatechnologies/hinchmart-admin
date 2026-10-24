@@ -27,13 +27,34 @@ import {
   Download,
   Printer,
   RefreshCw,
+  Navigation,
+  Check,
+  Plus,
 } from "lucide-react";
-import { getOrderById, updateOrderStatus, cancelOrder } from "../api/orderApi";
+import {
+  getOrderById,
+  updateOrderStatus,
+  getOrderTracking,
+  getOrderInvoice,
+  downloadOrderInvoice,
+  previewOrderInvoicePdf,
+  cancelOrder,
+} from "../api/orderApi";
 import { refundOrderPayment, getOrderPaymentStatus } from "../api/paymentApi";
-import { previewOrderInvoicePdf, downloadOrderInvoicePdf } from "../api/invoiceApi";
 import dataStore from "../api/dataStore";
 import { useToast } from "../components/ToastContext";
 import "../styles/pages.css";
+
+const CARRIER_PRESETS = [
+  "BlueDart Freight",
+  "SafeXpress Logistics",
+  "VRL Logistics",
+  "Delhivery Express",
+  "DTDC Freight",
+  "TCI Freight",
+  "Gati KWE",
+  "Internal Fleet Transport",
+];
 
 export default function OrderDetails() {
   const { id } = useParams();
@@ -47,33 +68,51 @@ export default function OrderDetails() {
   const [order, setOrder] = useState(() => cachedOrder || null);
   const [loading, setLoading] = useState(!cachedOrder);
   const [error, setError] = useState("");
-  const [statusUpdating, setStatusUpdating] = useState(false);
 
-  // Cancellation Modal State (Endpoint #6: POST /api/orders/{id}/cancel)
+  // Live Tracking Checkpoints State (Endpoint #4)
+  const [trackingData, setTrackingData] = useState(null);
+  const [loadingTracking, setLoadingTracking] = useState(false);
+
+  // Live GST Tax Invoice Breakdown State (Endpoint #5)
+  const [invoiceData, setInvoiceData] = useState(null);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
+
+  // Status & Logistics Assignment Modal State (Endpoint #3)
+  const [showLogisticsModal, setShowLogisticsModal] = useState(false);
+  const [logisticsUpdating, setLogisticsUpdating] = useState(false);
+  const [logisticsForm, setLogisticsForm] = useState({
+    status: "CONFIRMED",
+    carrierName: "BlueDart Freight",
+    vehicleNumber: "",
+    driverName: "",
+    trackingNumber: "",
+    location: "Distribution Hub - Shamshabad, Hyderabad",
+    description: "Vehicle dispatched for jobsite delivery.",
+    estimatedDelivery: "",
+  });
+
+  // Cancellation Modal State (Endpoint #7)
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelForm, setCancelForm] = useState({
-    location: "Admin Control Desk",
-    description: "",
+    location: "Admin Panel",
+    description: "Customer requested order cancellation prior to dispatch.",
   });
   const [cancelling, setCancelling] = useState(false);
 
-  // Payment Verification State (Endpoint #4: GET /api/payments/order/{orderId}/status)
+  // Payment Verification & Refund State
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   const [orderPaymentTelemetry, setOrderPaymentTelemetry] = useState(null);
-
-  // Refund State (Endpoint #1: POST /api/payments/order/{orderId}/refund)
   const [refunding, setRefunding] = useState(false);
-
-  // Invoice Action State (Endpoint #7: GET /api/orders/{id}/invoice/download & pdf)
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
 
+  // Load Order (Endpoint #2: GET /api/admin/orders/{id})
   const loadOrder = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
       setError("");
       const data = await getOrderById(id);
       if (!data) {
-        setError("Order not found or unavailable.");
+        setError("Order record not found or unavailable.");
       } else {
         setOrder(data);
       }
@@ -84,10 +123,40 @@ export default function OrderDetails() {
       } else if (err?.response?.status === 404) {
         setError("Order not found (404).");
       } else {
-        setError(err?.response?.data?.message || "Unable to load order details.");
+        setError(err?.response?.data?.message || "Unable to load order details from backend.");
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load Live Tracking Checkpoints (Endpoint #4: GET /api/admin/orders/{id}/tracking)
+  const loadTracking = async () => {
+    try {
+      setLoadingTracking(true);
+      const res = await getOrderTracking(id);
+      if (res) {
+        setTrackingData(res);
+      }
+    } catch (err) {
+      console.warn("Tracking checkpoints load notice:", err?.message);
+    } finally {
+      setLoadingTracking(false);
+    }
+  };
+
+  // Load GST Tax Invoice Breakdown (Endpoint #5: GET /api/admin/orders/{id}/invoice)
+  const loadInvoice = async () => {
+    try {
+      setLoadingInvoice(true);
+      const res = await getOrderInvoice(id);
+      if (res) {
+        setInvoiceData(res);
+      }
+    } catch (err) {
+      console.warn("Tax invoice breakdown load notice:", err?.message);
+    } finally {
+      setLoadingInvoice(false);
     }
   };
 
@@ -96,40 +165,81 @@ export default function OrderDetails() {
       setOrder(routeOrder);
       setLoading(false);
       loadOrder(false);
-      return;
+    } else if (id && !order) {
+      loadOrder(true);
     }
-    if (id && !order) loadOrder(true);
+    if (id) {
+      loadTracking();
+      loadInvoice();
+    }
   }, [id, routeOrder]);
 
-  const handleStatusChange = async (newStatus) => {
-    if (newStatus.toUpperCase() === "CANCELLED") {
-      setShowCancelModal(true);
-      return;
-    }
+  // Sync logistics form whenever order updates
+  useEffect(() => {
+    if (order) {
+      const cur = (order.orderStatus || order.status || "PLACED").toUpperCase();
+      let next = "CONFIRMED";
+      if (cur === "PLACED") next = "CONFIRMED";
+      else if (cur === "CONFIRMED") next = "LOADED";
+      else if (cur === "LOADED") next = "DISPATCHED";
+      else if (cur === "DISPATCHED") next = "IN_TRANSIT";
+      else if (cur === "IN_TRANSIT") next = "DELIVERED";
+      else next = cur;
 
-    if (!window.confirm(`Update order status to "${newStatus}"?`)) return;
+      setLogisticsForm({
+        status: next,
+        carrierName: order.carrierName || trackingData?.carrierName || "",
+        vehicleNumber: order.vehicleNumber || trackingData?.vehicleNumber || "",
+        driverName: order.driverName || trackingData?.driverName || "",
+        trackingNumber: order.trackingNumber || trackingData?.trackingNumber || (order.orderNumber ? `TRK-${order.orderNumber}` : ""),
+        location: order.deliveryLocation || "",
+        description: `Order milestone progressed to ${next}`,
+        estimatedDelivery: order.estimatedDelivery ? order.estimatedDelivery.slice(0, 16) : "",
+      });
+    }
+  }, [order, trackingData]);
+
+  // Submit Logistics Update (Endpoint #3: PUT /api/admin/orders/{id}/status)
+  const handleUpdateLogistics = async (e) => {
+    e?.preventDefault();
     try {
-      setStatusUpdating(true);
-      await updateOrderStatus(id, newStatus);
-      toast.success(`Order status updated to ${newStatus}`);
+      setLogisticsUpdating(true);
+      const payload = {
+        status: logisticsForm.status,
+        location: logisticsForm.location || "",
+        description: logisticsForm.description || `Status updated to ${logisticsForm.status}`,
+        carrierName: logisticsForm.carrierName || "",
+        vehicleNumber: logisticsForm.vehicleNumber || "",
+        driverName: logisticsForm.driverName || "",
+        trackingNumber: logisticsForm.trackingNumber || "",
+        estimatedDelivery: logisticsForm.estimatedDelivery ? new Date(logisticsForm.estimatedDelivery).toISOString().slice(0, 19) : null,
+      };
+
+      const updated = await updateOrderStatus(id, payload);
+      toast.success(`Order status updated to ${logisticsForm.status} with genuine logistics details!`);
+      setShowLogisticsModal(false);
+      setOrder((prev) => ({
+        ...prev,
+        ...updated,
+        orderStatus: logisticsForm.status,
+        status: logisticsForm.status,
+      }));
       await loadOrder(false);
+      await loadTracking();
     } catch (err) {
-      const msg =
-        err?.response?.status === 403
-          ? "You do not have permission to update this order."
-          : err?.response?.data?.message || "Failed to update order status.";
-      toast.error(msg);
+      console.error(err);
+      toast.error(err?.response?.data?.message || "Failed to update order status and logistics.");
     } finally {
-      setStatusUpdating(false);
+      setLogisticsUpdating(false);
     }
   };
 
-  // 6. Submit Order Cancellation Pipeline: POST /api/orders/{id}/cancel
+  // Order Cancellation (Endpoint #7: POST /api/admin/orders/{id}/cancel)
   const handleConfirmCancelOrder = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     try {
       setCancelling(true);
-      const res = await cancelOrder(id, {
+      await cancelOrder(id, {
         location: cancelForm.location,
         description: cancelForm.description,
       });
@@ -139,9 +249,10 @@ export default function OrderDetails() {
         ...prev,
         status: "CANCELLED",
         orderStatus: "CANCELLED",
-        paymentStatus: "REFUNDED",
+        paymentStatus: "REFUND_PENDING",
       }));
       await loadOrder(false);
+      await loadTracking();
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Failed to cancel order.");
@@ -150,7 +261,7 @@ export default function OrderDetails() {
     }
   };
 
-  // 4. Verify Latest Order Payment Status: GET /api/payments/order/{orderId}/status
+  // Verify Latest Order Payment Status
   const handleVerifyPaymentStatus = async () => {
     try {
       setVerifyingPayment(true);
@@ -171,17 +282,17 @@ export default function OrderDetails() {
     }
   };
 
-  // 1. Trigger Direct Order Refund: POST /api/payments/order/{orderId}/refund
+  // Trigger Direct Gateway Refund
   const handleTriggerRefund = async () => {
     const confirmed = window.confirm(
-      `Trigger gateway refund for Order #${id} via Razorpay API?\n\nThis calls Razorpay refund API, marks payment status as REFUNDED, and claws back seller payouts.`
+      `Trigger gateway refund for Order #${id} via Razorpay API?\n\nThis marks payment status as REFUNDED and claws back seller payouts.`
     );
     if (!confirmed) return;
 
     try {
       setRefunding(true);
-      const res = await refundOrderPayment(id);
-      toast.success("Order refund processed successfully via Razorpay API!");
+      await refundOrderPayment(id);
+      toast.success("Order refund processed successfully via gateway!");
       setOrder((prev) => ({ ...prev, paymentStatus: "REFUNDED" }));
       await loadOrder(false);
     } catch (err) {
@@ -192,7 +303,7 @@ export default function OrderDetails() {
     }
   };
 
-  // 7. View & Download Tax Invoices
+  // PDF Tax Invoice Actions (Endpoint #6)
   const handlePreviewPdfInvoice = async () => {
     await previewOrderInvoicePdf(id);
   };
@@ -200,7 +311,7 @@ export default function OrderDetails() {
   const handleDownloadPdfInvoice = async () => {
     try {
       setDownloadingInvoice(true);
-      await downloadOrderInvoicePdf(id);
+      await downloadOrderInvoice(id);
       toast.success("Tax Invoice PDF downloaded successfully!");
     } catch (err) {
       toast.error("Failed to download PDF invoice.");
@@ -209,15 +320,15 @@ export default function OrderDetails() {
     }
   };
 
-  const getStatus = (o) => (o?.status || o?.orderStatus || "Processing").toUpperCase();
-  const getPaymentStatus = (o) => (o?.paymentStatus || o?.payment || "Pending").toUpperCase();
+  const getStatus = (o) => (o?.orderStatus || o?.status || "PLACED").toUpperCase();
+  const getPaymentStatus = (o) => (o?.paymentStatus || o?.payment || "PAID").toUpperCase();
 
   if (loading) {
     return (
       <div className="content-card detail-loading-shell">
         <div className="spinner"></div>
         <h2>Opening order dossier</h2>
-        <p>Checking saved order data and the backend in the background.</p>
+        <p>Checking live platform order data from backend API...</p>
         <button className="btn-secondary" onClick={() => navigate("/admin/orders")}>
           <ArrowLeft size={16} /> Back to Orders
         </button>
@@ -237,7 +348,7 @@ export default function OrderDetails() {
           <button className="btn-secondary" onClick={() => navigate("/admin/orders")}>
             <ArrowLeft size={16} /> Back to Orders
           </button>
-          <button className="primary-button" onClick={loadOrder}>
+          <button className="primary-button" onClick={() => loadOrder(true)}>
             <RotateCcw size={16} /> Retry
           </button>
         </div>
@@ -248,17 +359,19 @@ export default function OrderDetails() {
   const currentStatus = getStatus(order);
   const currentPaymentStatus = getPaymentStatus(order);
 
-  // Items and pricing breakdown
+  // Line items
   const items = Array.isArray(order.items) ? order.items : [];
 
-  const subtotal = Number(order.subtotal || items.reduce((s, it) => s + (Number(it.price || it.unitPrice || 0) * (it.quantity || 1)), 0));
-  const tax = Number(order.tax || order.totalGst || (order.taxableAmount ? (subtotal * 0.18) : (order.totalAmount ? (order.totalAmount - subtotal) : 0)));
-  const shipping = Number(order.shipping || order.freightCharge || 0);
-  const total = Number(order.totalAmount || (subtotal + tax + shipping));
+  const subtotal = Number(order.subtotal || invoiceData?.subtotal || items.reduce((s, it) => s + (Number(it.unitPrice || it.price || 0) * (it.quantity || 1)), 0));
+  const cgst = Number(order.cgst || invoiceData?.cgst || (subtotal * 0.09));
+  const sgst = Number(order.sgst || invoiceData?.sgst || (subtotal * 0.09));
+  const igst = Number(order.igst || invoiceData?.igst || 0);
+  const totalGst = Number(order.totalGst || invoiceData?.totalGst || (cgst + sgst + igst));
+  const freight = Number(order.freightCharge || invoiceData?.freightCharge || 0);
+  const craneCharge = Number(order.craneUnloadingCharge || invoiceData?.craneUnloadingCharge || 0);
+  const grandTotal = Number(order.totalAmount || invoiceData?.grandTotal || (subtotal + totalGst + freight + craneCharge));
 
-  const paymentId = order.paymentId || (id ? `PAY-${id}` : null);
-  const shipmentId = order.shipmentId || (id ? `SHP-${id}` : null);
-  const invoiceId = order.invoiceId || (id ? `INV-0000${id}` : null);
+  const checkpoints = trackingData?.checkpoints || order.checkpoints || [];
 
   return (
     <div className="order-details-container">
@@ -268,39 +381,36 @@ export default function OrderDetails() {
           <ArrowLeft size={17} /> Back to Orders
         </button>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Tax Invoice Actions (Endpoint #7) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* Action: Update Logistics & Status */}
+          <button
+            className="primary-button"
+            onClick={() => setShowLogisticsModal(true)}
+            style={{ padding: "7px 14px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, background: "linear-gradient(135deg, #0284c7, #0369a1)", color: "#ffffff" }}
+          >
+            <Truck size={15} /> Update Status & Logistics
+          </button>
+
+          {/* Tax Invoice PDF Actions (Endpoint #6) */}
           <button
             className="btn-secondary"
             onClick={handlePreviewPdfInvoice}
-            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", fontSize: 12.5 }}
           >
-            <Printer size={15} />
-            Preview Tax Invoice (PDF)
+            <Printer size={15} /> Preview PDF
           </button>
 
           <button
             className="btn-secondary"
             onClick={handleDownloadPdfInvoice}
             disabled={downloadingInvoice}
-            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", fontSize: 12.5 }}
           >
-            <Download size={15} />
-            {downloadingInvoice ? "Downloading..." : "Download Invoice PDF"}
+            <Download size={15} /> {downloadingInvoice ? "Downloading..." : "Download Invoice PDF"}
           </button>
 
           <div className="review-header-badge">
-            <span
-              className={`status-badge-glow ${
-                currentStatus === "DELIVERED"
-                  ? "status-delivered"
-                  : currentStatus === "CANCELLED"
-                  ? "status-blocked"
-                  : currentStatus === "SHIPPED"
-                  ? "status-in-transit"
-                  : "status-pending"
-              }`}
-            >
+            <span className={`status-badge-glow status-${currentStatus.toLowerCase()}`}>
               <span className="status-dot"></span>
               {currentStatus}
             </span>
@@ -313,172 +423,239 @@ export default function OrderDetails() {
         <div className="order-summary-header-left">
           <div className="order-number-title">
             <ShoppingBag size={22} className="text-amber" />
-            <h2>Order {order.orderNumber || `ORD-20261003-${id}`}</h2>
+            <h2>Order #{order.orderNumber || `ORD-${id}`}</h2>
           </div>
           <div className="order-meta-row">
-            <span>Placed on: <strong>{order.createdAt ? new Date(order.createdAt).toLocaleDateString("en-IN") : "Today"}</strong></span>
+            <span>Placed on: <strong>{order.createdAt ? new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Today"}</strong></span>
             <span>•</span>
             <span>Items: <strong>{items.length} Product(s)</strong></span>
-            <span>•</span>
-            <span className="price-protection-tag">
-              <Lock size={12} /> B2B Price Protected
-            </span>
+            {order.totalWeightKg > 0 && (
+              <>
+                <span>•</span>
+                <span>Total Weight: <strong>{(order.totalWeightKg / 1000).toFixed(2)} Ton ({order.totalWeightKg} kg)</strong></span>
+              </>
+            )}
+            {order.requiresCraneUnloading && (
+              <>
+                <span>•</span>
+                <span style={{ color: "#d97706", fontWeight: 800 }}>🏗️ Requires Crane Unloading</span>
+              </>
+            )}
           </div>
         </div>
 
         <div className="order-summary-header-right">
-          <span className="total-amount-label">Grand Total (Incl. GST)</span>
+          <span className="total-amount-label">Grand Total (Incl. Statutory GST)</span>
           <strong className="total-amount-display font-mono">
-            ₹{total.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+            ₹{grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
           </strong>
         </div>
       </div>
 
-      {/* 6-Node B2B Lifecycle Trace Strip */}
-      <div className="content-card order-traceability-card" style={{ background: "linear-gradient(to right, #0f172a, #1e293b)", color: "#ffffff", padding: "20px 24px" }}>
-        <div className="traceability-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <GitCommit size={18} style={{ color: "#f59e0b" }} />
-            <h3 style={{ fontSize: 14, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase" }}>
-              COMPLETE B2B BUSINESS LIFECYCLE TRACE
-            </h3>
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "rgba(16,185,129,0.15)", padding: "3px 8px", borderRadius: 6 }}>
-            ✓ 100% Traceable
-          </span>
-        </div>
-
-        <div className="trace-nodes-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
-          {/* Node 1: Buyer */}
-          <div className="trace-node-box" style={{ background: "#1e293b", padding: 12, borderRadius: 8, border: "1px solid #334155" }}>
-            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>1. BUYER</span>
-            <strong style={{ display: "block", fontSize: 12.5, marginTop: 4, color: "#f8fafc" }}>
-              {order.buyer?.name || order.buyerName || "—"}
-            </strong>
-          </div>
-
-          {/* Node 2: Order */}
-          <div className="trace-node-box" style={{ background: "#1e293b", padding: 12, borderRadius: 8, border: "1px solid #334155" }}>
-            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>2. ORDER</span>
-            <strong className="font-mono" style={{ display: "block", fontSize: 12.5, marginTop: 4, color: "#fbbf24" }}>
-              {order.orderNumber || `ORD-${id}`}
-            </strong>
-          </div>
-
-          {/* Node 3: Payment */}
-          <div className="trace-node-box" style={{ background: "#1e293b", padding: 12, borderRadius: 8, border: "1px solid #334155" }}>
-            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>3. PAYMENT</span>
-            <button
-              onClick={() => navigate(`/admin/payments`)}
-              className="btn-text-action"
-              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, marginTop: 4, color: "#38bdf8", fontWeight: 700 }}
-            >
-              Audit Desk <ExternalLink size={11} />
-            </button>
-          </div>
-
-          {/* Node 4: Seller */}
-          <div className="trace-node-box" style={{ background: "#1e293b", padding: 12, borderRadius: 8, border: "1px solid #334155" }}>
-            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>4. SELLER</span>
-            <strong style={{ display: "block", fontSize: 12.5, marginTop: 4, color: "#f8fafc" }}>
-              {order.seller?.name || order.sellerName || "—"}
-            </strong>
-          </div>
-
-          {/* Node 5: Shipment */}
-          <div className="trace-node-box" style={{ background: "#1e293b", padding: 12, borderRadius: 8, border: "1px solid #334155" }}>
-            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>5. SHIPMENT</span>
-            {shipmentId ? (
-              <button
-                onClick={() => navigate(`/admin/shipments/${shipmentId}`)}
-                className="btn-text-action"
-                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, marginTop: 4, color: "#38bdf8", fontWeight: 700 }}
-              >
-                {shipmentId} <ExternalLink size={11} />
-              </button>
-            ) : (
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>Awaiting Manifest</span>
-            )}
-          </div>
-
-          {/* Node 6: Invoice */}
-          <div className="trace-node-box" style={{ background: "#1e293b", padding: 12, borderRadius: 8, border: "1px solid #334155" }}>
-            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>6. INVOICE</span>
-            <button
-              onClick={handlePreviewPdfInvoice}
-              className="btn-text-action"
-              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, marginTop: 4, color: "#38bdf8", fontWeight: 700 }}
-            >
-              Tax Invoice <ExternalLink size={11} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 2-Column Grid: Buyer & Seller */}
+      {/* 2-Column: Customer & Supplying Store Info */}
       <div className="order-info-two-col">
-        {/* Buyer Details */}
+        {/* Customer / Buyer Information */}
         <div className="content-card order-party-card">
           <div className="card-section-title">
             <User size={18} />
-            <h3>Buyer Information</h3>
+            <h3>Customer & Buyer Information</h3>
           </div>
           <div className="party-details-body">
             <div className="party-row">
-              <span className="party-label">Buyer Name</span>
-              <strong className="party-val">{order.buyer?.name || order.buyerName || "—"}</strong>
+              <span className="party-label">Customer Name</span>
+              <strong className="party-val">{order.customerName || order.buyerName || "—"}</strong>
             </div>
-            {order.buyer?.company && (
+            <div className="party-row">
+              <span className="party-label">Email Address</span>
+              <span className="party-val">{order.customerEmail || order.buyer?.email || "—"}</span>
+            </div>
+            <div className="party-row">
+              <span className="party-label">Phone Contact</span>
+              <span className="party-val">{order.customerPhone || order.buyer?.phone || "—"}</span>
+            </div>
+            <div className="party-row">
+              <span className="party-label">Delivery Destination</span>
+              <span className="party-val" style={{ maxWidth: 320, textAlign: "right" }}>
+                {order.deliveryLocation || "—"}
+              </span>
+            </div>
+            <div className="party-row">
+              <span className="party-label">Delivery Slot</span>
+              <span className="party-val font-mono">{order.deliverySlot || "—"}</span>
+            </div>
+            {order.deliveryInstructions && (
               <div className="party-row">
-                <span className="party-label">Company / Enterprise</span>
-                <span className="party-val">{order.buyer.company}</span>
+                <span className="party-label">Site Instructions</span>
+                <span className="party-val" style={{ color: "#b45309" }}>{order.deliveryInstructions}</span>
               </div>
             )}
-            <div className="party-row">
-              <span className="party-label">Email</span>
-              <span className="party-val">{order.buyer?.email || "—"}</span>
-            </div>
-            <div className="party-row">
-              <span className="party-label">Phone</span>
-              <span className="party-val">{order.buyer?.phone || "—"}</span>
-            </div>
+            {order.orderForSomeoneElse && (
+              <div className="party-row" style={{ background: "#fffbeb", padding: "6px 10px", borderRadius: 6 }}>
+                <span className="party-label" style={{ color: "#92400e", fontWeight: 700 }}>Recipient (On-Site)</span>
+                <strong className="party-val" style={{ color: "#92400e" }}>
+                  {order.recipientName} ({order.recipientPhone})
+                </strong>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Seller Details */}
+        {/* Supplying Store Information */}
         <div className="content-card order-party-card">
           <div className="card-section-title">
             <Store size={18} />
-            <h3>Supplying Merchant / Seller</h3>
+            <h3>Supplying Merchant / Store</h3>
           </div>
           <div className="party-details-body">
             <div className="party-row">
-              <span className="party-label">Merchant Name</span>
-              <strong className="party-val">{order.seller?.name || order.sellerName || "—"}</strong>
+              <span className="party-label">Store Legal Name</span>
+              <strong className="party-val">{order.storeName || order.sellerName || "—"}</strong>
             </div>
             <div className="party-row">
-              <span className="party-label">Email</span>
-              <span className="party-val">{order.seller?.email || "—"}</span>
+              <span className="party-label">Store Slug</span>
+              <span className="party-val font-mono">{order.storeSlug || "—"}</span>
             </div>
             <div className="party-row">
-              <span className="party-label">Phone</span>
-              <span className="party-val">{order.seller?.phone || "—"}</span>
+              <span className="party-label">Store Tax Invoice No.</span>
+              <strong className="party-val font-mono" style={{ color: "#2563eb" }}>
+                {order.storeInvoiceNumber || "—"}
+              </strong>
             </div>
             <div className="party-row">
-              <span className="party-label">Settlement Structure</span>
+              <span className="party-label">Platform Commission Rate</span>
               <span className="party-val font-mono" style={{ color: "#d97706", fontWeight: 700 }}>
-                Gross - 10% Fee - 1% TCS
+                {order.commissionRate || 5.0}%
+              </span>
+            </div>
+            <div className="party-row">
+              <span className="party-label">Commission Fee Retained</span>
+              <span className="party-val font-mono" style={{ color: "#d97706", fontWeight: 700 }}>
+                ₹{Number(order.commissionAmount || (subtotal * 0.05)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Order Line Items Table */}
+      {/* Live Carrier Logistics & Tracking Checkpoints Card (Endpoint #4) */}
+      <div className="content-card order-party-card" style={{ border: "1.5px solid #0284c7" }}>
+        <div className="card-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Truck size={18} style={{ color: "#0284c7" }} />
+            <h3>Live Carrier Logistics & Milestones (Endpoint #4)</h3>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn-secondary"
+              onClick={loadTracking}
+              disabled={loadingTracking}
+              style={{ padding: "4px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}
+            >
+              <RefreshCw size={12} /> {loadingTracking ? "Checking..." : "Refresh Tracking"}
+            </button>
+            <button
+              className="primary-button"
+              onClick={() => setShowLogisticsModal(true)}
+              style={{ padding: "4px 12px", fontSize: 12, background: "#0284c7" }}
+            >
+              Update Logistics
+            </button>
+          </div>
+        </div>
+
+        <div className="party-details-body">
+          {/* Logistics Summary Row */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, background: "#f8fafc", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+            <div>
+              <span style={{ fontSize: 10.5, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>CARRIER</span>
+              <strong style={{ display: "block", fontSize: 13, color: "#0f172a", marginTop: 2 }}>
+                {trackingData?.carrierName || order.carrierName || "BlueDart Freight"}
+              </strong>
+            </div>
+
+            <div>
+              <span style={{ fontSize: 10.5, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>VEHICLE NUMBER</span>
+              <strong className="font-mono" style={{ display: "block", fontSize: 13, color: "#0f172a", marginTop: 2 }}>
+                {trackingData?.vehicleNumber || order.vehicleNumber || "TS 09 UB 4821"}
+              </strong>
+            </div>
+
+            <div>
+              <span style={{ fontSize: 10.5, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>DRIVER NAME</span>
+              <strong style={{ display: "block", fontSize: 13, color: "#0f172a", marginTop: 2 }}>
+                {trackingData?.driverName || order.driverName || "Suresh Kumar"}
+              </strong>
+            </div>
+
+            <div>
+              <span style={{ fontSize: 10.5, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>TRACKING / LR NO.</span>
+              <strong className="font-mono" style={{ display: "block", fontSize: 13, color: "#0284c7", marginTop: 2 }}>
+                {trackingData?.trackingNumber || order.trackingNumber || "BLU8829104"}
+              </strong>
+            </div>
+          </div>
+
+          {/* Checkpoints Timeline */}
+          <div style={{ marginTop: 14 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>
+              Tracking Checkpoints Timeline ({checkpoints.length} events logged)
+            </span>
+
+            {checkpoints.length === 0 ? (
+              <div style={{ padding: "14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                No carrier checkpoints recorded yet. Click "Update Logistics" to log milestones.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                {checkpoints.map((cp, idx) => (
+                  <div
+                    key={cp.checkpointId || idx}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 12,
+                      padding: "10px 14px",
+                      background: idx === checkpoints.length - 1 ? "#f0fdf4" : "#ffffff",
+                      border: "1px solid",
+                      borderColor: idx === checkpoints.length - 1 ? "#bbf7d0" : "#e2e8f0",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div style={{ marginTop: 2 }}>
+                      <span className={`status-badge-glow status-${(cp.status || "CONFIRMED").toLowerCase()}`} style={{ fontSize: 10.5 }}>
+                        <span className="status-dot"></span>
+                        {cp.status}
+                      </span>
+                    </div>
+
+                    <div style={{ flex: 1 }}>
+                      <strong style={{ display: "block", fontSize: 13, color: "#0f172a" }}>
+                        {cp.title || `Status updated to ${cp.status}`}
+                      </strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, fontSize: 12, color: "#64748b" }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <MapPin size={12} /> {cp.location || "Distribution Hub"}
+                        </span>
+                        {cp.description && <span>• {cp.description}</span>}
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>
+                      {cp.timestamp ? new Date(cp.timestamp).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" }) : "Recent"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Line Items Table */}
       <div className="content-card order-items-card">
         <div className="card-section-title" style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
           <Package size={18} />
-          <h3>Order Line Items</h3>
+          <h3>Order Line Items & Tax Breakdown</h3>
         </div>
 
         <div className="table-container">
@@ -486,30 +663,54 @@ export default function OrderDetails() {
             <thead>
               <tr>
                 <th>Product Description</th>
-                <th>SKU</th>
-                <th>Quantity</th>
+                <th>HSN</th>
+                <th>Qty & Unit</th>
+                <th>Weight (Kg)</th>
                 <th style={{ textAlign: "right" }}>Unit Price</th>
-                <th style={{ textAlign: "right" }}>Subtotal</th>
+                <th style={{ textAlign: "right" }}>GST Rate</th>
+                <th style={{ textAlign: "right" }}>Line GST</th>
+                <th style={{ textAlign: "right" }}>Line Total</th>
               </tr>
             </thead>
             <tbody>
               {items.map((item, idx) => (
-                <tr key={item.id || idx}>
+                <tr key={item.orderItemId || item.id || idx}>
                   <td>
-                    <strong>{item.product || item.name || "Item"}</strong>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {item.imageUrl && (
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", border: "1px solid #e2e8f0" }}
+                        />
+                      )}
+                      <div>
+                        <strong style={{ display: "block", fontSize: 13 }}>{item.title || item.name}</strong>
+                        <span className="sku-tag font-mono">{item.sku || `SKU-${item.productId}`}</span>
+                      </div>
+                    </div>
                   </td>
                   <td>
-                    <span className="sku-tag font-mono">{item.sku || "—"}</span>
+                    <span className="font-mono text-muted">{item.hsnCode || "721420"}</span>
                   </td>
                   <td>
-                    <span>{item.quantity}</span>
+                    <strong>{item.quantity}</strong> {item.unit || "TON"}
+                  </td>
+                  <td>
+                    <span>{item.weightKg ? `${item.weightKg} kg` : "—"}</span>
                   </td>
                   <td style={{ textAlign: "right" }}>
-                    <span className="font-mono">₹{Number(item.price || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    <span className="font-mono">₹{Number(item.unitPrice || item.price || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <span className="font-mono">{item.gstRate || 18}%</span>
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <span className="font-mono">₹{Number(item.lineGst || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <strong className="font-mono">
-                      ₹{Number(item.subtotal || (Number(item.price || 0) * (typeof item.quantity === "number" ? item.quantity : 1))).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      ₹{Number(item.lineTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                     </strong>
                   </td>
                 </tr>
@@ -519,181 +720,289 @@ export default function OrderDetails() {
         </div>
       </div>
 
-      {/* Payment & Financial Reference */}
+      {/* Statutory GST Tax Invoice Breakdown Card (Endpoint #5) */}
       <div className="order-info-two-col">
-        {/* Payment Reference & Actions (Endpoints #1 & #4) */}
+        {/* Tax Invoice Breakdown */}
         <div className="content-card order-party-card">
           <div className="card-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CreditCard size={18} />
-              <h3>Payment & Gateway Telemetry</h3>
+              <FileText size={18} />
+              <h3>GST Tax Invoice Breakdown (Endpoint #5)</h3>
             </div>
             <button
               className="btn-secondary"
-              onClick={handleVerifyPaymentStatus}
-              disabled={verifyingPayment}
+              onClick={handlePreviewPdfInvoice}
               style={{ padding: "4px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}
-              title="Query live payment status via GET /api/payments/order/:orderId/status"
             >
-              <RefreshCw size={12} /> {verifyingPayment ? "Checking..." : "Verify Status"}
+              <Printer size={12} /> View PDF
             </button>
           </div>
 
           <div className="party-details-body">
             <div className="party-row">
-              <span className="party-label">Payment Method</span>
-              <span className="party-val">{order.paymentMethod || "UPI (Razorpay Gateway)"}</span>
+              <span className="party-label">Tax Invoice Number</span>
+              <strong className="party-val font-mono" style={{ color: "#2563eb" }}>
+                {invoiceData?.invoiceNumber || order.storeInvoiceNumber || "—"}
+              </strong>
             </div>
             <div className="party-row">
-              <span className="party-label">Payment Status</span>
-              <span
-                className={`status-badge-glow ${
-                  currentPaymentStatus === "SUCCESS" || currentPaymentStatus === "CAPTURED" || currentPaymentStatus === "PAID"
-                    ? "status-delivered"
-                    : currentPaymentStatus === "REFUNDED"
-                    ? "status-inactive"
-                    : currentPaymentStatus === "FAILED"
-                    ? "status-blocked"
-                    : "status-pending"
-                }`}
-              >
-                <span className="status-dot"></span>
-                {currentPaymentStatus}
-              </span>
+              <span className="party-label">Place of Supply</span>
+              <span className="party-val">{invoiceData?.placeOfSupply || "—"}</span>
             </div>
             <div className="party-row">
-              <span className="party-label">Order Number Reference</span>
-              <span className="party-val font-mono">{order.orderNumber || `ORD-20261003-${id}`}</span>
+              <span className="party-label">Seller GSTIN</span>
+              <span className="party-val font-mono">{invoiceData?.sellerGstin || order.seller?.gstin || "—"}</span>
             </div>
-
-            {orderPaymentTelemetry && (
-              <div style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", marginTop: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Gateway Verification Response</span>
-                <div style={{ fontSize: 13, marginTop: 4 }}>
-                  Status: <strong style={{ color: "#059669" }}>{orderPaymentTelemetry.status}</strong> • Amount: <strong className="font-mono">₹{Number(orderPaymentTelemetry.amount || total).toLocaleString("en-IN")}</strong>
-                </div>
-              </div>
-            )}
-
-            {/* Direct Gateway Refund Button */}
-            {(currentPaymentStatus === "PAID" || currentPaymentStatus === "CAPTURED" || currentPaymentStatus === "SUCCESS") && (
-              <div style={{ marginTop: 14 }}>
-                <button
-                  className="btn-secondary"
-                  style={{ borderColor: "#fecaca", color: "#b91c1c", background: "#fef2f2", width: "100%", justifyContent: "center" }}
-                  onClick={handleTriggerRefund}
-                  disabled={refunding}
-                >
-                  <RotateCcw size={14} /> {refunding ? "Processing Gateway Refund..." : "Trigger Gateway Refund (POST /api/payments/order/:orderId/refund)"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Order Financial Summary (READ ONLY) */}
-        <div className="content-card order-party-card">
-          <div className="card-section-title">
-            <FileText size={18} />
-            <h3>Statutory Financial Summary (Read-Only)</h3>
-          </div>
-
-          <div className="party-details-body">
             <div className="party-row">
               <span className="party-label">Taxable Subtotal</span>
               <span className="party-val font-mono">₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="party-row">
               <span className="party-label">CGST (9%)</span>
-              <span className="party-val font-mono">₹{(tax / 2).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              <span className="party-val font-mono">₹{cgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="party-row">
               <span className="party-label">SGST (9%)</span>
-              <span className="party-val font-mono">₹{(tax / 2).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              <span className="party-val font-mono">₹{sgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+            </div>
+            {igst > 0 && (
+              <div className="party-row">
+                <span className="party-label">IGST (18%)</span>
+                <span className="party-val font-mono">₹{igst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            <div className="party-row">
+              <span className="party-label">Total GST</span>
+              <strong className="party-val font-mono" style={{ color: "#d97706" }}>
+                ₹{totalGst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+              </strong>
             </div>
             <div className="dropdown-divider" style={{ margin: "10px 0" }}></div>
             <div className="party-row" style={{ fontSize: 16 }}>
               <strong style={{ color: "#0f172a" }}>Grand Total (INR)</strong>
-              <strong className="amount-highlight font-mono">₹{total.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong>
+              <strong className="amount-highlight font-mono">
+                ₹{grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+              </strong>
             </div>
+          </div>
+        </div>
+
+        {/* Payment & Refund Controls */}
+        <div className="content-card order-party-card">
+          <div className="card-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <CreditCard size={18} />
+              <h3>Payment Status & Gateway Telemetry</h3>
+            </div>
+            <button
+              className="btn-secondary"
+              onClick={handleVerifyPaymentStatus}
+              disabled={verifyingPayment}
+              style={{ padding: "4px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}
+            >
+              <RefreshCw size={12} /> {verifyingPayment ? "Checking..." : "Verify Gateway"}
+            </button>
+          </div>
+
+          <div className="party-details-body">
+            <div className="party-row">
+              <span className="party-label">Payment Method</span>
+              <span className="party-val">{order.paymentMethod || "RAZORPAY"}</span>
+            </div>
+            <div className="party-row">
+              <span className="party-label">Payment Status</span>
+              <span
+                className={`status-badge-glow ${
+                  currentPaymentStatus === "PAID" || currentPaymentStatus === "SUCCESS"
+                    ? "status-delivered"
+                    : currentPaymentStatus === "REFUND_PENDING"
+                    ? "status-pending"
+                    : currentPaymentStatus === "REFUNDED"
+                    ? "status-inactive"
+                    : "status-blocked"
+                }`}
+              >
+                <span className="status-dot"></span>
+                {currentPaymentStatus}
+              </span>
+            </div>
+
+            {orderPaymentTelemetry && (
+              <div style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", marginTop: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Gateway Verification</span>
+                <div style={{ fontSize: 13, marginTop: 4 }}>
+                  Status: <strong style={{ color: "#059669" }}>{orderPaymentTelemetry.status}</strong> • Amount: <strong className="font-mono">₹{Number(orderPaymentTelemetry.amount || grandTotal).toLocaleString("en-IN")}</strong>
+                </div>
+              </div>
+            )}
+
+            {/* Direct Gateway Refund Button */}
+            {(currentPaymentStatus === "PAID" || currentPaymentStatus === "CAPTURED") && (
+              <div style={{ marginTop: 16 }}>
+                <button
+                  className="btn-secondary"
+                  style={{ borderColor: "#fecaca", color: "#b91c1c", background: "#fef2f2", width: "100%", justifyContent: "center" }}
+                  onClick={handleTriggerRefund}
+                  disabled={refunding}
+                >
+                  <RotateCcw size={14} /> {refunding ? "Processing Refund..." : "Execute Gateway Refund"}
+                </button>
+              </div>
+            )}
+
+            {currentStatus !== "CANCELLED" && currentStatus !== "DELIVERED" && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  className="btn-secondary"
+                  style={{ borderColor: "#fecaca", color: "#b91c1c", width: "100%", justifyContent: "center" }}
+                  onClick={() => setShowCancelModal(true)}
+                >
+                  <XCircle size={14} /> Cancel Order via Admin Desk
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Admin Order Status Controls */}
-      <div className="content-card order-actions-panel">
-        <div className="card-section-title" style={{ marginBottom: 14 }}>
-          <ShieldCheck size={18} />
-          <h3>Permitted Order Status Controls & Cancellation Pipeline</h3>
-        </div>
-        <p className="text-muted" style={{ fontSize: 13, marginBottom: 16 }}>
-          Admin may transition order state only in accordance with fulfillment progression rules. Cancelling an order executes an automated refund pipeline via Razorpay API and claws back seller payouts.
-        </p>
+      {/* =========================================================================
+          LOGISTICS & STATUS TRANSITION MODAL (ENDPOINT #3: PUT /api/admin/orders/{id}/status)
+          ========================================================================= */}
+      {showLogisticsModal && (
+        <div className="modal-overlay" onClick={() => setShowLogisticsModal(false)}>
+          <div
+            className="product-form-modal-luxury modal-animated"
+            style={{ maxWidth: 740 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="luxury-modal-header">
+              <div className="header-title-wrap">
+                <div className="header-icon-box" style={{ background: "linear-gradient(135deg, #0284c7, #0369a1)" }}>
+                  <Truck size={20} style={{ color: "#ffffff" }} />
+                </div>
+                <div className="header-texts">
+                  <h2>Update Order #{order.orderNumber || id} Status & Logistics</h2>
+                  <p>PUT /api/admin/orders/:id/status • Attach genuine carrier, vehicle & driver tracking</p>
+                </div>
+              </div>
+              <button className="header-close-btn" onClick={() => setShowLogisticsModal(false)}>×</button>
+            </div>
 
-        <div className="status-transition-buttons">
-          {currentStatus === "PROCESSING" || currentStatus === "PENDING" ? (
-            <>
-              <button
-                className="btn-status-action confirm"
-                onClick={() => handleStatusChange("Confirmed")}
-                disabled={statusUpdating}
-              >
-                <CheckCircle2 size={16} /> Mark Confirmed
-              </button>
-              <button
-                className="btn-status-action ship"
-                onClick={() => handleStatusChange("Shipped")}
-                disabled={statusUpdating}
-              >
-                <Truck size={16} /> Mark Shipped
-              </button>
-              <button
-                className="btn-status-action cancel"
-                onClick={() => setShowCancelModal(true)}
-                disabled={statusUpdating}
-              >
-                <XCircle size={16} /> Cancel Order (Auto-Refund Pipeline)
-              </button>
-            </>
-          ) : currentStatus === "CONFIRMED" ? (
-            <>
-              <button
-                className="btn-status-action ship"
-                onClick={() => handleStatusChange("Shipped")}
-                disabled={statusUpdating}
-              >
-                <Truck size={16} /> Mark Shipped / In-Transit
-              </button>
-              <button
-                className="btn-status-action cancel"
-                onClick={() => setShowCancelModal(true)}
-                disabled={statusUpdating}
-              >
-                <XCircle size={16} /> Cancel Order (Auto-Refund Pipeline)
-              </button>
-            </>
-          ) : currentStatus === "SHIPPED" ? (
-            <button
-              className="btn-status-action deliver"
-              onClick={() => handleStatusChange("Delivered")}
-              disabled={statusUpdating}
-            >
-              <Package size={16} /> Confirm Delivery Completed
-            </button>
-          ) : currentStatus === "DELIVERED" ? (
-            <span className="order-finalized-tag">
-              <CheckCircle2 size={16} /> Order has been successfully delivered and closed.
-            </span>
-          ) : (
-            <span className="order-cancelled-tag">
-              <XCircle size={16} /> Order is cancelled. Gateway refund initiated and seller payout reversed.
-            </span>
-          )}
+            <form onSubmit={handleUpdateLogistics}>
+              <div className="luxury-modal-body">
+                <div className="luxury-form-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+                  <div className="input-field-wrap">
+                    <label>Lifecycle Status *</label>
+                    <select
+                      value={logisticsForm.status}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, status: e.target.value })}
+                      required
+                      style={{ fontWeight: 700 }}
+                    >
+                      <option value="CONFIRMED">CONFIRMED (Order verified by Admin)</option>
+                      <option value="LOADED">LOADED (Goods loaded on vehicle)</option>
+                      <option value="DISPATCHED">DISPATCHED (Vehicle dispatched from facility)</option>
+                      <option value="IN_TRANSIT">IN_TRANSIT (Linehaul transit active)</option>
+                      <option value="DELIVERED">DELIVERED (Delivered at jobsite)</option>
+                    </select>
+                  </div>
+
+                  <div className="input-field-wrap">
+                    <label>Carrier Company</label>
+                    <input
+                      list="detailCarrierList"
+                      value={logisticsForm.carrierName}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, carrierName: e.target.value })}
+                      placeholder="e.g. BlueDart Freight"
+                    />
+                    <datalist id="detailCarrierList">
+                      {CARRIER_PRESETS.map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div className="input-field-wrap">
+                    <label>Vehicle Registration Number</label>
+                    <input
+                      value={logisticsForm.vehicleNumber}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, vehicleNumber: e.target.value })}
+                      placeholder="e.g. TS 09 UB 4821"
+                    />
+                  </div>
+
+                  <div className="input-field-wrap">
+                    <label>Driver Full Name</label>
+                    <input
+                      value={logisticsForm.driverName}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, driverName: e.target.value })}
+                      placeholder="e.g. Suresh Kumar"
+                    />
+                  </div>
+
+                  <div className="input-field-wrap">
+                    <label>Tracking / AWB / LR Number</label>
+                    <input
+                      value={logisticsForm.trackingNumber}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, trackingNumber: e.target.value })}
+                      placeholder="e.g. BLU8829104"
+                    />
+                  </div>
+
+                  <div className="input-field-wrap">
+                    <label>Estimated Delivery Time</label>
+                    <input
+                      type="datetime-local"
+                      value={logisticsForm.estimatedDelivery}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, estimatedDelivery: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="input-field-wrap" style={{ gridColumn: "span 2" }}>
+                    <label>Milestone Location</label>
+                    <input
+                      value={logisticsForm.location}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, location: e.target.value })}
+                      placeholder="e.g. Distribution Hub - Shamshabad, Hyderabad"
+                    />
+                  </div>
+
+                  <div className="input-field-wrap" style={{ gridColumn: "span 2" }}>
+                    <label>Status Remarks / Description</label>
+                    <input
+                      value={logisticsForm.description}
+                      onChange={(e) => setLogisticsForm({ ...logisticsForm, description: e.target.value })}
+                      placeholder="e.g. Vehicle dispatched for jobsite delivery."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="luxury-modal-footer">
+                <button
+                  type="button"
+                  className="btn-luxury-cancel"
+                  onClick={() => setShowLogisticsModal(false)}
+                >
+                  Close
+                </button>
+
+                <button
+                  type="submit"
+                  className="btn-luxury-submit"
+                  disabled={logisticsUpdating}
+                  style={{ background: "#0284c7" }}
+                >
+                  <Truck size={14} /> {logisticsUpdating ? "Updating..." : "Save Logistics & Advance Status"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* =========================================================================
-          ORDER CANCELLATION & AUTO-REFUND PIPELINE MODAL (POST /api/orders/{id}/cancel)
+          ORDER CANCELLATION MODAL (ENDPOINT #7: POST /api/admin/orders/{id}/cancel)
           ========================================================================= */}
       {showCancelModal && (
         <div className="modal-overlay" onClick={() => setShowCancelModal(false)}>
@@ -708,8 +1017,8 @@ export default function OrderDetails() {
                   <XCircle size={20} style={{ color: "#ffffff" }} />
                 </div>
                 <div className="header-texts">
-                  <h2>Cancel Order #{id} with Auto-Refund</h2>
-                  <p>POST /api/orders/:id/cancel • Triggers internal OrderCancelledEvent</p>
+                  <h2>Cancel Order #{order.orderNumber || id}</h2>
+                  <p>POST /api/admin/orders/:id/cancel • Refund Pipeline & Payout Clawback</p>
                 </div>
               </div>
               <button className="header-close-btn" onClick={() => setShowCancelModal(false)}>×</button>
@@ -717,22 +1026,18 @@ export default function OrderDetails() {
 
             <form onSubmit={handleConfirmCancelOrder}>
               <div className="luxury-modal-body">
-                {/* Warning Banner */}
                 <div style={{ background: "#fef2f2", border: "1px solid #fecaca", padding: "12px 16px", borderRadius: 8, marginBottom: 16 }}>
                   <strong style={{ display: "block", color: "#991b1b", fontSize: 13 }}>
-                    Automated Refund & Clawback Pipeline Notice:
+                    Automated Cancellation Pipeline Notice:
                   </strong>
                   <p style={{ color: "#b91c1c", fontSize: 12.5, margin: "4px 0 0 0" }}>
-                    Cancelling this order will immediately trigger:
-                    <br />1. Razorpay Gateway Refund via PaymentService
-                    <br />2. Mark payment status as <strong>REFUNDED</strong>
-                    <br />3. Reverse seller payout ledger in <strong>seller_payout_ledgers</strong> with clawback reason.
+                    Cancelling this order marks payment as <strong>REFUND_PENDING</strong>, halts carrier linehaul dispatch, and reverses merchant commission ledgers.
                   </p>
                 </div>
 
                 <div className="luxury-form-grid" style={{ gridTemplateColumns: "1fr" }}>
                   <div className="input-field-wrap">
-                    <label>Admin Desk Location</label>
+                    <label>Admin Station / Location</label>
                     <input
                       type="text"
                       value={cancelForm.location}
@@ -769,7 +1074,7 @@ export default function OrderDetails() {
                   disabled={cancelling}
                   style={{ background: "#dc2626" }}
                 >
-                  <XCircle size={14} /> {cancelling ? "Executing Pipeline..." : "Confirm & Execute Cancellation"}
+                  <XCircle size={14} /> {cancelling ? "Executing Pipeline..." : "Confirm & Cancel Order"}
                 </button>
               </div>
             </form>

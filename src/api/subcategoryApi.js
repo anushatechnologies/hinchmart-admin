@@ -56,10 +56,13 @@ export const markSubcategoryDeleted = (id, name = "", categoryId = "") => {
     }
   }
 
-  if (name && categoryId) {
-    const key = `${name.trim().toLowerCase()}:::${String(categoryId)}`;
+  if (name) {
+    const cleanName = name.trim().toLowerCase();
     const deletedNames = getDeletedSubcategoryNames();
-    deletedNames.add(key);
+    deletedNames.add(cleanName);
+    if (categoryId) {
+      deletedNames.add(`${cleanName}:::${String(categoryId)}`);
+    }
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(STORAGE_KEY_DELETED_SUB_NAMES, JSON.stringify(Array.from(deletedNames)));
@@ -243,8 +246,10 @@ export const getSubcategories = async (categoryId = null) => {
       .filter((s) => {
         if (!s || !s.name) return false;
         const sId = String(s.subcategoryId || s.id);
-        const sKey = `${s.name.trim().toLowerCase()}:::${String(s.categoryId)}`;
+        const cleanName = s.name.trim().toLowerCase();
+        const sKey = `${cleanName}:::${String(s.categoryId)}`;
         if (deletedIds.has(sId)) return false;
+        if (cleanName && deletedNames.has(cleanName)) return false;
         if (deletedNames.has(sKey)) return false;
         return true;
       });
@@ -993,31 +998,52 @@ export const deleteSubcategory = async (id, categoryId = null, subName = "") => 
 
   // 5. Send live DELETE to backend database
   if (isRemoteId(id)) {
-    try {
-      await api.delete(`/subcategories/${id}`);
-    } catch (err) {
-      let deletedOnServer = false;
-      const status = err?.response?.status;
+    let deletedOnServer = false;
+    let lastError = null;
 
-      // Fallback 1: Try alias /admin/subcategories/${id} if 404 or 405
-      if (status === 404 || status === 405) {
-        try {
-          await api.delete(`/admin/subcategories/${id}`);
-          deletedOnServer = true;
-        } catch {}
+    const candidateEndpoints = [
+      `/subcategories/${id}`,
+      `/admin/subcategories/${id}`,
+      ...(categoryId ? [`/categories/${categoryId}/subcategories/${id}`, `/subcategories/${id}?categoryId=${categoryId}`] : []),
+    ];
+
+    for (const ep of candidateEndpoints) {
+      try {
+        await api.delete(ep);
+        deletedOnServer = true;
+        break;
+      } catch (err) {
+        lastError = err;
+        const status = err?.response?.status;
+        // If 404 or 405, try alternative candidate routes
+        if (status === 404 || status === 405) {
+          continue;
+        }
+        // Active server rejection (400, 409, 500)
+        break;
       }
+    }
 
-      // Fallback 2: Try /categories/${categoryId}/subcategories/${id} if categoryId is available
-      if (!deletedOnServer && categoryId && (status === 404 || status === 405)) {
-        try {
-          await api.delete(`/categories/${categoryId}/subcategories/${id}`);
-          deletedOnServer = true;
-        } catch {}
-      }
+    if (!deletedOnServer && lastError) {
+      const status = lastError?.response?.status;
+      const rawMsg =
+        lastError?.response?.data?.message ||
+        lastError?.response?.data?.error ||
+        lastError?.message ||
+        "";
+      const isConstraintError =
+        status === 409 ||
+        /foreign key|constraint|product|cannot delete|child|referenced/i.test(rawMsg);
 
-      // If backend responded with an error, log a warning but DO NOT resurrect or roll back!
-      if (status !== 404 && !deletedOnServer) {
-        console.warn(`Backend deleteSubcategory(${id}) response notice:`, err?.response?.data?.message || err?.message);
+      if (isConstraintError) {
+        // Roll back local deletion so state stays consistent with database
+        unmarkSubcategoryDeleted(id, subName, categoryId);
+        throw new Error(
+          rawMsg ||
+            "Cannot delete subcategory from database because products are currently assigned to it. Please reassign or delete its products first, or toggle Website Visibility OFF to hide it."
+        );
+      } else if (status !== 404) {
+        console.warn(`Backend deleteSubcategory(${id}) response notice:`, rawMsg);
       }
     }
   }

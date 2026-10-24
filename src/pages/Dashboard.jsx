@@ -28,17 +28,18 @@ import {
   Lock,
   GitCommit,
   Megaphone,
+  LifeBuoy,
 } from "lucide-react";
 
 import { getDashboard } from "../api/dashboardApi";
-import { getProducts, approveProduct, rejectProduct } from "../api/productApi";
-import { getCategories } from "../api/categoryApi";
+import { getProducts, approveProduct, rejectProduct, getStoredProducts } from "../api/productApi";
+import { getCategories, getStoredCategories } from "../api/categoryApi";
 import { getBuyers } from "../api/buyerApi";
 import { getSellers } from "../api/sellerApi";
 import { getOrders, updateOrderStatus } from "../api/orderApi";
-import { getPayments } from "../api/paymentApi";
+import { getPayments, getStoredPayments } from "../api/paymentApi";
 import { getShipments } from "../api/shipmentApi";
-import { subscribeDataUpdate } from "../api/dataStore";
+import dataStore, { subscribeDataUpdate } from "../api/dataStore";
 import { useToast } from "../components/ToastContext";
 import StatCard from "../components/StatCard";
 
@@ -51,15 +52,61 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const toast = useToast();
 
-  const [dashboard, setDashboard] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [buyers, setBuyers] = useState([]);
-  const [sellers, setSellers] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [shipments, setShipments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Instant hydration from local dataStore / cache (0ms initial render)
+  const [dashboard, setDashboard] = useState(() => dataStore.getDashboardStats() || null);
+  const [products, setProducts] = useState(() => {
+    try {
+      const stored = getStoredProducts();
+      return Array.isArray(stored) && stored.length > 0 ? stored : [];
+    } catch {
+      return [];
+    }
+  });
+  const [categories, setCategories] = useState(() => {
+    try {
+      const stored = getStoredCategories();
+      return Array.isArray(stored) && stored.length > 0 ? stored : [];
+    } catch {
+      return [];
+    }
+  });
+  const [buyers, setBuyers] = useState(() => {
+    try {
+      return dataStore.getBuyers() || [];
+    } catch {
+      return [];
+    }
+  });
+  const [sellers, setSellers] = useState(() => {
+    try {
+      return dataStore.getSellers() || [];
+    } catch {
+      return [];
+    }
+  });
+  const [orders, setOrders] = useState(() => {
+    try {
+      return dataStore.getOrders() || [];
+    } catch {
+      return [];
+    }
+  });
+  const [payments, setPayments] = useState(() => {
+    try {
+      const stored = getStoredPayments();
+      return Array.isArray(stored) && stored.length > 0 ? stored : [];
+    } catch {
+      return [];
+    }
+  });
+  const [shipments, setShipments] = useState(() => {
+    try {
+      return dataStore.getShipments() || [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -74,40 +121,60 @@ export default function Dashboard() {
     try {
       if (isManualRefresh) {
         setRefreshing(true);
-      } else if (!dashboard) {
-        setLoading(true);
       }
 
       const [dashData, prodData, catData, buyData, selData, ordData, payData, shipData] = await Promise.allSettled([
         getDashboard(),
-        getProducts(),
+        getProducts({ limit: 50, page: 1 }),
         getCategories(),
         getBuyers(),
         getSellers(),
-        getOrders(),
+        getOrders({ limit: 50, page: 1 }),
         getPayments(),
         getShipments(),
       ]);
 
-      if (dashData.status === "fulfilled") setDashboard(dashData.value);
-      if (prodData.status === "fulfilled") setProducts(Array.isArray(prodData.value) ? prodData.value : prodData.value?.products || []);
-      if (catData.status === "fulfilled") setCategories(Array.isArray(catData.value) ? catData.value : catData.value?.categories || []);
-      if (buyData.status === "fulfilled") setBuyers(Array.isArray(buyData.value) ? buyData.value : buyData.value?.buyers || []);
-      if (selData.status === "fulfilled") setSellers(Array.isArray(selData.value) ? selData.value : selData.value?.sellers || []);
-      if (ordData.status === "fulfilled") setOrders(Array.isArray(ordData.value) ? ordData.value : ordData.value?.orders || []);
-      if (payData.status === "fulfilled") setPayments(Array.isArray(payData.value) ? payData.value : payData.value?.payments || []);
-      if (shipData.status === "fulfilled") setShipments(Array.isArray(shipData.value) ? shipData.value : shipData.value?.shipments || []);
+      if (dashData.status === "fulfilled" && dashData.value) setDashboard(dashData.value);
+      if (prodData.status === "fulfilled") {
+        const val = prodData.value;
+        const list = Array.isArray(val) ? val : (val?.products || []);
+        setProducts(list);
+      }
+      if (catData.status === "fulfilled") {
+        const val = catData.value;
+        const list = Array.isArray(val) ? val : (val?.categories || []);
+        setCategories(list);
+      }
+      if (buyData.status === "fulfilled") {
+        const list = Array.isArray(buyData.value) ? buyData.value : (buyData.value?.buyers || []);
+        setBuyers(list);
+      }
+      if (selData.status === "fulfilled") {
+        const list = Array.isArray(selData.value) ? selData.value : (selData.value?.sellers || []);
+        setSellers(list);
+      }
+      if (ordData.status === "fulfilled") {
+        const list = Array.isArray(ordData.value) ? ordData.value : (ordData.value?.orders || []);
+        setOrders(list);
+      }
+      if (payData.status === "fulfilled") {
+        const list = Array.isArray(payData.value) ? payData.value : (payData.value?.payments || []);
+        setPayments(list);
+      }
+      if (shipData.status === "fulfilled") {
+        const list = Array.isArray(shipData.value) ? shipData.value : (shipData.value?.shipments || []);
+        setShipments(list);
+      }
 
       setError("");
       setLastUpdated(new Date());
     } catch (err) {
-      console.error(err);
-      setError("Unable to load dashboard data from backend.");
+      console.warn("Dashboard sync notice:", err?.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [dashboard]);
+  }, []); // Stable empty dependency array prevents infinite re-render loop
 
   useEffect(() => {
     loadData();
@@ -155,13 +222,39 @@ export default function Dashboard() {
     }
   };
 
+  const isToday = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
+    const now = new Date();
+    return (
+      d.getDate() === now.getDate() &&
+      d.getMonth() === now.getMonth() &&
+      d.getFullYear() === now.getFullYear()
+    );
+  };
+
   const pendingSellers = sellers.filter((s) => (s.approvalStatus || s.status || "").toUpperCase() === "PENDING");
   const pendingProducts = products.filter((p) => (p.approvalStatus || p.status || "").toUpperCase() === "PENDING");
   const successfulPayments = payments.filter((p) => (p.paymentStatus || "").toUpperCase() === "SUCCESS").length;
   const pendingPayments = payments.filter((p) => (p.paymentStatus || "").toUpperCase() === "PENDING").length;
   const shipmentsInTransit = shipments.filter((s) => (s.status || "").toUpperCase() === "IN TRANSIT" || (s.status || "").toUpperCase() === "PICKED UP").length;
-  const deliveredToday = shipments.filter((s) => (s.status || "").toUpperCase() === "DELIVERED").length;
-  const todaysGMV = orders.reduce((sum, o) => sum + Number(o.totalAmount || o.amount || 0), 0);
+  
+  const ordersToday = orders.filter((o) =>
+    isToday(o.createdAt || o.created_at || o.orderDate || o.order_date || o.date)
+  );
+  const totalOrders = orders.length;
+  const todaysOrdersCount = ordersToday.length;
+
+  const totalGMV = orders.reduce((sum, o) => sum + Number(o.totalAmount || o.total || o.amount || 0), 0);
+  const todaysGMV = ordersToday.reduce((sum, o) => sum + Number(o.totalAmount || o.total || o.amount || 0), 0);
+
+  const deliveredToday = shipments.filter(
+    (s) =>
+      (s.status || "").toUpperCase() === "DELIVERED" &&
+      isToday(s.deliveredAt || s.delivered_at || s.updatedAt || s.updated_at || s.date)
+  ).length;
+  const totalDelivered = shipments.filter((s) => (s.status || "").toUpperCase() === "DELIVERED").length;
 
   if (loading && !dashboard) {
     return (
@@ -184,7 +277,7 @@ export default function Dashboard() {
             </span>
             <span className="system-health-tag">
               <Zap size={13} />
-              <span>Today's Realized GMV: ₹{todaysGMV.toLocaleString("en-IN")}</span>
+              <span>Total GMV: ₹{totalGMV.toLocaleString("en-IN")} • Today's Orders: {todaysOrdersCount}</span>
             </span>
           </div>
           <h1 className="hero-title">Business Visibility & Operations Command</h1>
@@ -221,9 +314,25 @@ export default function Dashboard() {
       {/* Primary Business Metrics Grid */}
       <div className="stats-grid">
         <StatCard
-          title="TODAY'S GMV"
-          value={todaysGMV}
+          title="TOTAL GMV"
+          value={totalGMV}
           icon={<IndianRupee size={20} />}
+          linkTo="/admin/orders"
+          color="orders"
+        />
+
+        <StatCard
+          title="TOTAL ORDERS"
+          value={totalOrders}
+          icon={<ShoppingCart size={20} />}
+          linkTo="/admin/orders"
+          color="buyers"
+        />
+
+        <StatCard
+          title="ORDERS TODAY"
+          value={todaysOrdersCount}
+          icon={<ShoppingCart size={20} />}
           linkTo="/admin/orders"
           color="orders"
         />
@@ -245,16 +354,8 @@ export default function Dashboard() {
         />
 
         <StatCard
-          title="ORDERS TODAY"
-          value={orders.length}
-          icon={<ShoppingCart size={20} />}
-          linkTo="/admin/orders"
-          color="buyers"
-        />
-
-        <StatCard
           title="OPEN RFQs"
-          value={dashboard?.openRFQs ?? 3}
+          value={dashboard?.openRFQs ?? 0}
           icon={<FileText size={20} />}
           linkTo="/admin/rfqs"
           color="products"
@@ -301,11 +402,11 @@ export default function Dashboard() {
         />
 
         <StatCard
-          title="CAMPAIGN BANNERS"
-          value="Studio"
-          icon={<Megaphone size={20} />}
-          linkTo="/admin/banners"
-          color="rfqs"
+          title="SELLER TICKETS"
+          value="Desk"
+          icon={<LifeBuoy size={20} />}
+          linkTo="/admin/seller-tickets"
+          color="pending"
         />
       </div>
 

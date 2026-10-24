@@ -129,7 +129,7 @@ export default function Banners() {
     setEditing(banner);
     setVideoFile(null);
     if (banner) {
-      const bannerImg = banner.imageUrl || banner.imageURL || banner.image || banner.posterUrl || BANNER_PRESETS[0].url;
+      const bannerImg = banner.imageUrl || banner.imageURL || banner.image || banner.posterUrl || "";
       const hasVid = Boolean(banner.videoUrl && banner.videoUrl.trim());
       setForm({
         ...EMPTY_BANNER,

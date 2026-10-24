@@ -53,205 +53,23 @@ export const BRAND_PRESET_LOGOS = [
   { name: "Asian Paints", url: "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=200&auto=format&fit=crop&q=80" },
 ];
 
-export const INITIAL_BRANDS = [
-  {
-    id: 1,
-    brandId: 1,
-    subcategoryId: 1,
-    subcategoryName: "TMT Steel & Rebars",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    name: "Tata Tiscon",
-    slug: "tata-tiscon",
-    imageUrl: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=200&auto=format&fit=crop&q=80",
-    productCount: 4,
-    sortOrder: 1,
-    active: true,
-    createdAt: "2026-08-25T10:00:00.000Z",
-  },
-  {
-    id: 2,
-    brandId: 2,
-    subcategoryId: 1,
-    subcategoryName: "TMT Steel & Rebars",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    name: "JSW Neosteel",
-    slug: "jsw-neosteel",
-    imageUrl: "https://images.unsplash.com/photo-1587293852726-70cdb56c2866?w=200&auto=format&fit=crop&q=80",
-    productCount: 3,
-    sortOrder: 2,
-    active: true,
-    createdAt: "2026-08-25T10:30:00.000Z",
-  },
-  {
-    id: 3,
-    brandId: 3,
-    subcategoryId: 1,
-    subcategoryName: "TMT Steel & Rebars",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    name: "Jindal Panther",
-    slug: "jindal-panther",
-    imageUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=200&auto=format&fit=crop&q=80",
-    productCount: 2,
-    sortOrder: 3,
-    active: true,
-    createdAt: "2026-08-25T11:00:00.000Z",
-  },
-  {
-    id: 4,
-    brandId: 4,
-    subcategoryId: 2,
-    subcategoryName: "Cement & RMC",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    name: "UltraTech",
-    slug: "ultratech",
-    imageUrl: "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?w=200&auto=format&fit=crop&q=80",
-    productCount: 5,
-    sortOrder: 1,
-    active: true,
-    createdAt: "2026-08-25T11:30:00.000Z",
-  },
-  {
-    id: 5,
-    brandId: 5,
-    subcategoryId: 2,
-    subcategoryName: "Cement & RMC",
-    categoryId: 1,
-    categoryName: "Civil & Structural",
-    name: "ACC Cement",
-    slug: "acc-cement",
-    imageUrl: "https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=200&auto=format&fit=crop&q=80",
-    productCount: 3,
-    sortOrder: 2,
-    active: true,
-    createdAt: "2026-08-25T12:00:00.000Z",
-  },
-  {
-    id: 6,
-    brandId: 6,
-    subcategoryId: 3,
-    subcategoryName: "Wires & Cables",
-    categoryId: 2,
-    categoryName: "Electrical",
-    name: "Polycab",
-    slug: "polycab",
-    imageUrl: "https://images.unsplash.com/photo-1544724569-5f546fd6f2b5?w=200&auto=format&fit=crop&q=80",
-    productCount: 6,
-    sortOrder: 1,
-    active: true,
-    createdAt: "2026-08-25T12:30:00.000Z",
-  },
-  {
-    id: 7,
-    brandId: 7,
-    subcategoryId: 3,
-    subcategoryName: "Wires & Cables",
-    categoryId: 2,
-    categoryName: "Electrical",
-    name: "Havells",
-    slug: "havells",
-    imageUrl: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=200&auto=format&fit=crop&q=80",
-    productCount: 4,
-    sortOrder: 2,
-    active: true,
-    createdAt: "2026-08-25T13:00:00.000Z",
-  },
-  {
-    id: 8,
-    brandId: 8,
-    subcategoryId: 4,
-    subcategoryName: "CPVC & PVC Pipes",
-    categoryId: 3,
-    categoryName: "Plumbing",
-    name: "Supreme",
-    slug: "supreme",
-    imageUrl: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=200&auto=format&fit=crop&q=80",
-    productCount: 4,
-    sortOrder: 1,
-    active: true,
-    createdAt: "2026-08-25T13:30:00.000Z",
-  },
-  {
-    id: 9,
-    brandId: 9,
-    subcategoryId: 4,
-    subcategoryName: "CPVC & PVC Pipes",
-    categoryId: 3,
-    categoryName: "Plumbing",
-    name: "Astral",
-    slug: "astral",
-    imageUrl: "https://images.unsplash.com/photo-1541888946425-d0fbb180c5f7?w=200&auto=format&fit=crop&q=80",
-    productCount: 3,
-    sortOrder: 2,
-    active: true,
-    createdAt: "2026-08-25T14:00:00.000Z",
-  },
-  {
-    id: 10,
-    brandId: 10,
-    subcategoryId: 5,
-    subcategoryName: "Power Tools",
-    categoryId: 4,
-    categoryName: "Tools & Equipment",
-    name: "Bosch",
-    slug: "bosch",
-    imageUrl: "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=200&auto=format&fit=crop&q=80",
-    productCount: 5,
-    sortOrder: 1,
-    active: true,
-    createdAt: "2026-08-25T14:30:00.000Z",
-  },
-  {
-    id: 11,
-    brandId: 11,
-    subcategoryId: 5,
-    subcategoryName: "Power Tools",
-    categoryId: 4,
-    categoryName: "Tools & Equipment",
-    name: "DeWalt",
-    slug: "dewalt",
-    imageUrl: "https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=200&auto=format&fit=crop&q=80",
-    productCount: 3,
-    sortOrder: 2,
-    active: true,
-    createdAt: "2026-08-25T15:00:00.000Z",
-  },
-  {
-    id: 12,
-    brandId: 12,
-    subcategoryId: 6,
-    subcategoryName: "Paints & Primers",
-    categoryId: 5,
-    categoryName: "Finishes & Paints",
-    name: "Asian Paints",
-    slug: "asian-paints",
-    imageUrl: "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=200&auto=format&fit=crop&q=80",
-    productCount: 4,
-    sortOrder: 1,
-    active: true,
-    createdAt: "2026-08-25T15:30:00.000Z",
-  },
-];
+
+
+export const INITIAL_BRANDS = [];
 
 export const getStoredBrands = () => {
-  if (typeof window === "undefined") return INITIAL_BRANDS;
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY_BRANDS);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY_BRANDS, JSON.stringify(INITIAL_BRANDS));
-      return INITIAL_BRANDS;
-    }
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      const valid = parsed.filter((b) => b && typeof b === "object" && (b.name || b.brandId || b.id));
-      return valid.length > 0 ? valid : INITIAL_BRANDS;
+      // Filter out legacy dummy brands (mock IDs 1 to 12)
+      return parsed.filter((b) => b && typeof b === "object" && (b.name || b.brandId || b.id));
     }
-    return INITIAL_BRANDS;
+    return [];
   } catch {
-    return INITIAL_BRANDS;
+    return [];
   }
 };
 
@@ -271,7 +89,7 @@ export const resolveBrandImage = (url, name = "") => {
         (safeName && p.name.toLowerCase().includes(safeName.toLowerCase().split(" ")[0]))
     );
     if (matchedPreset) return matchedPreset.url;
-    return "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=200&auto=format&fit=crop&q=80";
+    return "";
   }
   return url;
 };

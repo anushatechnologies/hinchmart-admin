@@ -4,53 +4,8 @@ import { getStoredProducts } from "./productApi";
 
 const STORAGE_KEY_HOT_DEALS = "hinchmart_admin_hot_deals_cache_v1";
 
-// Seed data matching the user's specification structure for offline fallback
-const SEED_HOT_DEALS = [
-  {
-    id: 1,
-    productId: 101,
-    productName: "Samsung 55 Inch 4K Smart TV",
-    displayOrder: 1,
-    active: true,
-    createdAt: "2026-10-06T08:30:00",
-    updatedAt: "2026-10-06T08:30:00",
-    product: {
-      productId: 101,
-      name: "Samsung 55 Inch 4K Smart TV",
-      productName: "Samsung 55 Inch 4K Smart TV",
-      description: "Ultra HD Crystal 4K LED TV with HDR10+",
-      price: 39999.0,
-      mrp: 49999.0,
-      stockQuantity: 25,
-      imageUrl: "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=600&auto=format&fit=crop&q=80",
-      categoryName: "Electronics",
-      displayOrder: 1,
-      active: true,
-    },
-  },
-  {
-    id: 2,
-    productId: 205,
-    productName: "HP Pavilion 15 Laptop",
-    displayOrder: 2,
-    active: false,
-    createdAt: "2026-10-06T08:32:00",
-    updatedAt: "2026-10-06T08:40:00",
-    product: {
-      productId: 205,
-      name: "HP Pavilion 15 Laptop",
-      productName: "HP Pavilion 15 Laptop",
-      description: "Intel Core i5 12th Gen, 16GB RAM, 512GB SSD",
-      price: 54999.0,
-      mrp: 62999.0,
-      stockQuantity: 10,
-      imageUrl: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=600&auto=format&fit=crop&q=80",
-      categoryName: "Computers",
-      displayOrder: 2,
-      active: true,
-    },
-  },
-];
+// Empty fallback when backend is unreachable
+const SEED_HOT_DEALS = [];
 
 /**
  * Local cache getters & setters
@@ -85,12 +40,45 @@ export const normalizeHotDeal = (deal) => {
   const productId = Number(deal.productId || prod.productId || prod.id || id);
   const name = prod.name || prod.productName || prod.title || deal.productName || deal.title || `Product #${productId}`;
 
+  // Extract flexible discount fields directly from backend response (V29 architecture)
+  const rawDisc =
+    deal.discountPercentage ??
+    deal.discount_percentage ??
+    prod.discountPercentage ??
+    prod.discount_percentage;
+  const discountPercentage =
+    rawDisc !== null && rawDisc !== undefined && !isNaN(Number(rawDisc))
+      ? Number(rawDisc)
+      : null;
+
+  const rawDealPrice =
+    deal.dealPrice ??
+    deal.deal_price ??
+    prod.dealPrice ??
+    prod.deal_price;
+  const dealPrice =
+    rawDealPrice !== null && rawDealPrice !== undefined && !isNaN(Number(rawDealPrice))
+      ? Number(rawDealPrice)
+      : null;
+
+  const price = Number(prod.price ?? deal.price ?? 0);
+
+  // Genuine manufacturer MRP (null when omitted, and purge any legacy synthetic 1.15 MRP)
+  const rawMrp = prod.mrp ?? deal.mrp;
+  const isSyntheticMrp = rawMrp != null && price > 0 && Math.round((Number(rawMrp) / price) * 100) / 100 === 1.15;
+  const mrp =
+    rawMrp !== null && rawMrp !== undefined && !isNaN(Number(rawMrp)) && !isSyntheticMrp
+      ? Number(rawMrp)
+      : null;
+
   return {
     id: deal.id,
     productId,
     productName: deal.productName || name,
     displayOrder: Number(deal.displayOrder || 1),
     active: deal.active !== false && deal.isActive !== false,
+    discountPercentage,
+    dealPrice,
     createdAt: deal.createdAt || new Date().toISOString(),
     updatedAt: deal.updatedAt || new Date().toISOString(),
     product: {
@@ -98,8 +86,10 @@ export const normalizeHotDeal = (deal) => {
       name,
       productName: name,
       description: prod.description || deal.description || "",
-      price: Number(prod.price ?? deal.price ?? 0),
-      mrp: Number(prod.mrp ?? deal.mrp ?? prod.price ?? deal.price ?? 0),
+      price,
+      mrp,
+      dealPrice,
+      discountPercentage,
       stockQuantity: Number(prod.stockQuantity ?? prod.stockQty ?? (typeof prod.stock === "number" ? prod.stock : 25)),
       imageUrl: prod.imageUrl || prod.imageURL || prod.image || deal.imageUrl || deal.image || "",
       categoryName: prod.categoryName || prod.category?.name || prod.category || deal.categoryName || "General",
@@ -156,7 +146,14 @@ export const getHotDeals = async () => {
  * Endpoint: /api/admin/hot-deals
  * Body: { productId, displayOrder?, active? }
  */
-export const addHotDeal = async ({ productId, displayOrder, active = true, productDetails = null }) => {
+export const addHotDeal = async ({
+  productId,
+  displayOrder,
+  active = true,
+  discountPercentage = null,
+  dealPrice = null,
+  productDetails = null,
+}) => {
   const pId = Number(productId);
   if (!pId) throw new Error("A valid Product ID is required");
 
@@ -166,6 +163,11 @@ export const addHotDeal = async ({ productId, displayOrder, active = true, produ
   };
   if (displayOrder !== undefined && displayOrder !== null && displayOrder !== "") {
     payload.displayOrder = Number(displayOrder);
+  }
+  if (discountPercentage !== undefined && discountPercentage !== null && discountPercentage !== "") {
+    payload.discountPercentage = Number(discountPercentage);
+  } else if (dealPrice !== undefined && dealPrice !== null && dealPrice !== "") {
+    payload.dealPrice = Number(dealPrice);
   }
 
   try {
@@ -205,12 +207,29 @@ export const addHotDeal = async ({ productId, displayOrder, active = true, produ
         ? Math.max(...current.map((d) => d.displayOrder || 0)) + 1
         : 1;
 
+    const basePrice = Number(productDetails?.price || 0);
+    const mPrice = productDetails?.mrp != null ? Number(productDetails.mrp) : null;
+    let simDiscountPercentage = null;
+    let simDealPrice = null;
+
+    if (payload.discountPercentage != null) {
+      simDiscountPercentage = Number(payload.discountPercentage);
+      simDealPrice = Math.max(0, Number((basePrice * (1 - simDiscountPercentage / 100)).toFixed(2)));
+    } else if (payload.dealPrice != null) {
+      simDealPrice = Number(payload.dealPrice);
+      simDiscountPercentage = basePrice > 0 ? Number((((basePrice - simDealPrice) / basePrice) * 100).toFixed(2)) : 0;
+    } else if (mPrice && mPrice > basePrice) {
+      simDiscountPercentage = Number((((mPrice - basePrice) / mPrice) * 100).toFixed(2));
+    }
+
     const newDeal = {
       id: Date.now(),
       productId: pId,
       productName: productDetails?.name || productDetails?.productName || `Product #${pId}`,
       displayOrder: nextOrder,
       active: payload.active,
+      discountPercentage: simDiscountPercentage,
+      dealPrice: simDealPrice,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       product: {
@@ -218,8 +237,10 @@ export const addHotDeal = async ({ productId, displayOrder, active = true, produ
         name: productDetails?.name || productDetails?.productName || `Product #${pId}`,
         productName: productDetails?.productName || productDetails?.name || `Product #${pId}`,
         description: productDetails?.description || "",
-        price: Number(productDetails?.price || 0),
-        mrp: Number(productDetails?.mrp || productDetails?.price || 0),
+        price: basePrice,
+        mrp: mPrice,
+        dealPrice: simDealPrice,
+        discountPercentage: simDiscountPercentage,
         stockQuantity: Number(productDetails?.stockQuantity ?? 10),
         imageUrl: productDetails?.imageUrl || "",
         categoryName: productDetails?.categoryName || "General",
@@ -329,13 +350,24 @@ export const reorderHotDeals = async (items) => {
  * Endpoint: /api/admin/hot-deals/{id}
  * Body: { displayOrder: 3, active: true }
  */
-export const updateHotDeal = async (id, { displayOrder, active }) => {
+export const updateHotDeal = async (
+  id,
+  { displayOrder, active, discountPercentage, dealPrice }
+) => {
   const payload = {};
   if (displayOrder !== undefined && displayOrder !== null && displayOrder !== "") {
     payload.displayOrder = Number(displayOrder);
   }
   if (active !== undefined && active !== null) {
     payload.active = Boolean(active);
+  }
+  if (discountPercentage !== undefined) {
+    payload.discountPercentage =
+      discountPercentage !== null && discountPercentage !== "" ? Number(discountPercentage) : null;
+  }
+  if (dealPrice !== undefined) {
+    payload.dealPrice =
+      dealPrice !== null && dealPrice !== "" ? Number(dealPrice) : null;
   }
 
   try {
@@ -355,15 +387,37 @@ export const updateHotDeal = async (id, { displayOrder, active }) => {
     const existing = current.find((d) => d.id === id);
     if (!existing) throw new Error(`Hot deal with ID ${id} not found`);
 
+    const basePrice = Number(existing.product?.price || 0);
+    let simDiscountPercentage = existing.discountPercentage;
+    let simDealPrice = existing.dealPrice;
+
+    if (payload.discountPercentage !== undefined) {
+      simDiscountPercentage = payload.discountPercentage;
+      simDealPrice =
+        payload.discountPercentage !== null
+          ? Math.max(0, Number((basePrice * (1 - payload.discountPercentage / 100)).toFixed(2)))
+          : null;
+    } else if (payload.dealPrice !== undefined) {
+      simDealPrice = payload.dealPrice;
+      simDiscountPercentage =
+        payload.dealPrice !== null && basePrice > 0
+          ? Number((((basePrice - payload.dealPrice) / basePrice) * 100).toFixed(2))
+          : null;
+    }
+
     const updated = {
       ...existing,
       displayOrder: payload.displayOrder !== undefined ? payload.displayOrder : existing.displayOrder,
       active: payload.active !== undefined ? payload.active : existing.active,
+      discountPercentage: simDiscountPercentage,
+      dealPrice: simDealPrice,
       updatedAt: new Date().toISOString(),
       product: {
         ...existing.product,
         displayOrder: payload.displayOrder !== undefined ? payload.displayOrder : existing.product?.displayOrder,
         active: payload.active !== undefined ? payload.active : existing.product?.active,
+        discountPercentage: simDiscountPercentage,
+        dealPrice: simDealPrice,
       },
     };
 
@@ -408,6 +462,16 @@ export const deleteHotDeal = async (id) => {
 export const searchProductsForHotDeals = async (keyword = "", page = 0, size = 20) => {
   const cleanKw = (keyword || "").toLowerCase().trim();
 
+  const cleanGenuineMrp = (priceVal, mrpVal) => {
+    if (mrpVal == null || isNaN(Number(mrpVal))) return null;
+    const numMrp = Number(mrpVal);
+    const numPrice = Number(priceVal || 0);
+    if (numPrice > 0 && Math.round((numMrp / numPrice) * 100) / 100 === 1.15) {
+      return null;
+    }
+    return numMrp;
+  };
+
   try {
     const params = {
       page,
@@ -441,18 +505,21 @@ export const searchProductsForHotDeals = async (keyword = "", page = 0, size = 2
     }
 
     if (items.length > 0) {
-      const formatted = items.map((p) => ({
-        productId: Number(p.productId || p.id),
-        name: p.name || p.title || p.productName || "Unnamed Product",
-        productName: p.productName || p.name || p.title || "Unnamed Product",
-        description: p.description || "",
-        price: Number(p.price || 0),
-        mrp: Number(p.mrp || p.price || 0),
-        stockQuantity: Number(p.stockQuantity ?? p.stockQty ?? (typeof p.stock === "number" ? p.stock : 25)),
-        imageUrl: p.imageUrl || p.imageURL || p.image || (p.images && p.images[0]) || "",
-        categoryName: p.categoryName || p.category?.name || p.category || "General",
-        active: p.active !== false && p.isActive !== false,
-      }));
+      const formatted = items.map((p) => {
+        const itemPrice = Number(p.price || 0);
+        return {
+          productId: Number(p.productId || p.id),
+          name: p.name || p.title || p.productName || "Unnamed Product",
+          productName: p.productName || p.name || p.title || "Unnamed Product",
+          description: p.description || "",
+          price: itemPrice,
+          mrp: cleanGenuineMrp(itemPrice, p.mrp),
+          stockQuantity: Number(p.stockQuantity ?? p.stockQty ?? (typeof p.stock === "number" ? p.stock : 25)),
+          imageUrl: p.imageUrl || p.imageURL || p.image || (p.images && p.images[0]) || "",
+          categoryName: p.categoryName || p.category?.name || p.category || "General",
+          active: p.active !== false && p.isActive !== false,
+        };
+      });
 
       return {
         content: formatted,
@@ -471,28 +538,11 @@ export const searchProductsForHotDeals = async (keyword = "", page = 0, size = 2
   } catch {}
 
   if (!Array.isArray(catalogProducts) || catalogProducts.length === 0) {
-    catalogProducts = [
-      {
-        id: 101,
-        productId: 101,
-        name: "Samsung 55 Inch 4K Smart TV",
-        price: 39999.0,
-        mrp: 49999.0,
-        stockQty: 25,
-        imageUrl: "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=600&auto=format&fit=crop&q=80",
-        categoryName: "Electronics",
-      },
-      {
-        id: 205,
-        productId: 205,
-        name: "HP Pavilion 15 Laptop",
-        price: 54999.0,
-        mrp: 62999.0,
-        stockQty: 10,
-        imageUrl: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=600&auto=format&fit=crop&q=80",
-        categoryName: "Computers",
-      },
-    ];
+    return {
+      content: [],
+      totalElements: 0,
+      totalPages: 0,
+    };
   }
 
   const filtered = cleanKw
@@ -507,18 +557,21 @@ export const searchProductsForHotDeals = async (keyword = "", page = 0, size = 2
 
   const slice = filtered.slice(page * size, (page + 1) * size);
   return {
-    content: slice.map((p) => ({
-      productId: Number(p.productId || p.id),
-      name: p.name || p.title || p.productName || "Unnamed Product",
-      productName: p.productName || p.name || p.title || "Unnamed Product",
-      description: p.description || "",
-      price: Number(p.price || 0),
-      mrp: Number(p.mrp || p.price || 0),
-      stockQuantity: Number(p.stockQty ?? p.stockQuantity ?? (typeof p.stock === "number" ? p.stock : 25)),
-      imageUrl: p.imageUrl || p.imageURL || p.image || (p.images && p.images[0]) || "",
-      categoryName: p.categoryName || p.category?.name || p.category || "General",
-      active: p.active !== false && p.isActive !== false,
-    })),
+    content: slice.map((p) => {
+      const itemPrice = Number(p.price || 0);
+      return {
+        productId: Number(p.productId || p.id),
+        name: p.name || p.title || p.productName || "Unnamed Product",
+        productName: p.productName || p.name || p.title || "Unnamed Product",
+        description: p.description || "",
+        price: itemPrice,
+        mrp: cleanGenuineMrp(itemPrice, p.mrp),
+        stockQuantity: Number(p.stockQty ?? p.stockQuantity ?? (typeof p.stock === "number" ? p.stock : 25)),
+        imageUrl: p.imageUrl || p.imageURL || p.image || (p.images && p.images[0]) || "",
+        categoryName: p.categoryName || p.category?.name || p.category || "General",
+        active: p.active !== false && p.isActive !== false,
+      };
+    }),
     totalElements: filtered.length,
     totalPages: Math.ceil(filtered.length / size) || 1,
   };

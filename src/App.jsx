@@ -19,6 +19,9 @@ const Sellers = lazy(() => import("./pages/Sellers"));
 const Stores = lazy(() => import("./pages/Stores"));
 const SellerApprovals = lazy(() => import("./pages/SellerApprovals"));
 const SellerDocuments = lazy(() => import("./pages/SellerDocuments"));
+const SellerTickets = lazy(() => import("./pages/SellerTickets"));
+const CustomerTickets = lazy(() => import("./pages/CustomerTickets"));
+const SupportTickets = lazy(() => import("./pages/SupportTickets"));
 const Buyers = lazy(() => import("./pages/Buyers"));
 const Orders = lazy(() => import("./pages/Orders"));
 const OrderDetails = lazy(() => import("./pages/OrderDetails"));
@@ -31,6 +34,8 @@ const ShipmentDetails = lazy(() => import("./pages/ShipmentDetails"));
 const RFQs = lazy(() => import("./pages/RFQs"));
 const Reports = lazy(() => import("./pages/Reports"));
 const Settings = lazy(() => import("./pages/Settings"));
+const VendorStock = lazy(() => import("./pages/VendorStock"));
+const Refunds = lazy(() => import("./pages/Refunds"));
 
 // Components
 import AdminLayout from "./components/AdminLayout";
@@ -106,12 +111,26 @@ function AppRoutes() {
           <Route path="coupons" element={<Coupons />} />
           <Route path="hot-deals" element={<HotDeals />} />
           <Route path="products" element={<Products />} />
+          <Route path="vendor-stock" element={<VendorStock />} />
+          <Route path="consignment" element={<VendorStock />} />
           <Route path="product-approvals" element={<ProductApprovals />} />
           <Route path="product-review/:id" element={<ProductReview />} />
           <Route path="sellers" element={<Sellers />} />
           <Route path="stores" element={<Stores />} />
           <Route path="seller-approvals" element={<SellerApprovals />} />
           <Route path="seller-documents" element={<SellerDocuments />} />
+          <Route path="seller-tickets" element={<SellerTickets />} />
+          <Route path="seller-tickets/:id" element={<SellerTickets />} />
+          <Route path="customer-tickets" element={<CustomerTickets />} />
+          <Route path="customer-tickets/:id" element={<CustomerTickets />} />
+          <Route path="customer-support" element={<CustomerTickets />} />
+          <Route path="customer-support/:id" element={<CustomerTickets />} />
+          <Route path="support-tickets" element={<SupportTickets />} />
+          <Route path="support-tickets/:id" element={<SupportTickets />} />
+          <Route path="tickets" element={<SupportTickets />} />
+          <Route path="tickets/:id" element={<SupportTickets />} />
+          <Route path="support" element={<SupportTickets />} />
+          <Route path="support/:id" element={<SupportTickets />} />
           <Route path="buyers" element={<Buyers />} />
           <Route path="orders" element={<Orders />} />
           <Route path="orders/:id" element={<OrderDetails />} />
@@ -119,6 +138,7 @@ function AppRoutes() {
           <Route path="invoices/:id" element={<InvoiceDetails />} />
           <Route path="payments" element={<Payments />} />
           <Route path="payments/:id" element={<PaymentDetails />} />
+          <Route path="refunds" element={<Refunds />} />
           <Route path="shipments" element={<Shipments />} />
           <Route path="shipments/:id" element={<ShipmentDetails />} />
           <Route path="rfqs" element={<RFQs />} />

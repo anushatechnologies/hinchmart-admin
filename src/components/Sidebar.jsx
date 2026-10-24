@@ -21,8 +21,11 @@ import {
   Megaphone,
   X,
   ChevronLeft,
-  ChevronRight,
   Flame,
+  LifeBuoy,
+  MessageSquare,
+  Boxes,
+  RefreshCw,
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../firebase/AuthContext";
@@ -30,10 +33,14 @@ import logoImg from "../assets/hinchmart-logo.png";
 import dataStore, { subscribeDataUpdate } from "../api/dataStore";
 import { getBuyers } from "../api/buyerApi";
 import { getSellers } from "../api/sellerApi";
-import { getProducts } from "../api/productApi";
+import { getProducts, getPendingProducts, isSellerAddedProduct } from "../api/productApi";
 import { getOrders } from "../api/orderApi";
 import { getBanners } from "../api/bannerApi";
 import { getHotDeals } from "../api/hotDealApi";
+import { getAdminSellerTickets } from "../api/sellerTicketApi";
+import { getAdminCustomerTickets } from "../api/customerTicketApi";
+import { getTickets } from "../api/ticketApi";
+import { getPendingRefunds } from "../api/refundApi";
 
 export default function Sidebar({
   collapsed = false,
@@ -45,31 +52,47 @@ export default function Sidebar({
   const location = useLocation();
   const { user, logout } = useAuth();
 
-  const [counts, setCounts] = useState(() => {
-    const stats = dataStore.getDashboardStats();
-    return {
-      buyers: stats.totalBuyers || 42,
-      sellers: stats.totalSellers || 0,
-      sellerKyc: stats.pendingSellers || 0,
-      products: stats.activeProducts || dataStore.getProducts().length || 0,
-      orders: stats.todaysOrders || dataStore.getOrders().length || 0,
-      banners: 3,
-      hotDeals: 2,
-    };
-  });
+  const [counts, setCounts] = useState(() => ({
+    buyers: dataStore.getBuyers?.()?.length || 0,
+    sellers: dataStore.getSellers?.()?.length || 0,
+    sellerKyc: 0,
+    products: dataStore.getProducts?.()?.length || 0,
+    pendingProducts: 0,
+    orders: dataStore.getOrders?.()?.length || 0,
+    banners: 0,
+    hotDeals: 0,
+    sellerTickets: 0,
+    customerTickets: 0,
+    pendingRefunds: 0,
+  }));
 
   useEffect(() => {
     let mounted = true;
 
     const refreshCounts = async () => {
       try {
-        const [buyersData, sellersData, productsData, ordersData, bannersData, hotDealsData] = await Promise.allSettled([
+        const [
+          buyersData,
+          sellersData,
+          productsData,
+          pendingProductsData,
+          ordersData,
+          bannersData,
+          hotDealsData,
+          sellerTicketsData,
+          customerTicketsData,
+          refundsData,
+        ] = await Promise.allSettled([
           getBuyers(),
           getSellers(),
-          getProducts(),
-          getOrders(),
+          getProducts({ limit: 20, page: 1 }),
+          getPendingProducts(),
+          getOrders({ limit: 20, page: 1 }),
           getBanners(),
           getHotDeals(),
+          getAdminSellerTickets({ status: "OPEN", limit: 5 }),
+          getAdminCustomerTickets({ status: "OPEN", limit: 5 }),
+          getPendingRefunds(),
         ]);
 
         if (!mounted) return;
@@ -101,33 +124,55 @@ export default function Sidebar({
         const bannersCount =
           bannersData.status === "fulfilled" && Array.isArray(bannersData.value)
             ? bannersData.value.length
-            : 3;
+            : 0;
 
         const hotDealsCount =
           hotDealsData.status === "fulfilled" && Array.isArray(hotDealsData.value)
             ? hotDealsData.value.length
-            : 2;
+            : 0;
+
+        const pendingProductsCount =
+          pendingProductsData.status === "fulfilled" && Array.isArray(pendingProductsData.value)
+            ? pendingProductsData.value.filter(isSellerAddedProduct).length
+            : 0;
+
+        const openSellerTicketsCount =
+          sellerTicketsData.status === "fulfilled" && sellerTicketsData.value?.data
+            ? sellerTicketsData.value.pagination?.total ?? sellerTicketsData.value.data.length
+            : 0;
+
+        const openCustomerTicketsCount =
+          customerTicketsData.status === "fulfilled" && customerTicketsData.value?.data
+            ? customerTicketsData.value.pagination?.total ?? customerTicketsData.value.data.length
+            : 0;
+
+        const pendingRefundsCount =
+          refundsData.status === "fulfilled" && Array.isArray(refundsData.value)
+            ? refundsData.value.filter((r) => r.status !== "REFUNDED").length
+            : 0;
 
         setCounts({
           buyers: buyersCount,
           sellers: sellersCount,
           sellerKyc: pendingSellersCount,
           products: productsCount,
+          pendingProducts: pendingProductsCount,
           orders: ordersCount,
           banners: bannersCount,
           hotDeals: hotDealsCount,
+          sellerTickets: openSellerTicketsCount,
+          customerTickets: openCustomerTicketsCount,
+          pendingRefunds: pendingRefundsCount,
         });
       } catch {
         if (!mounted) return;
-        const stats = dataStore.getDashboardStats();
-        setCounts({
-          buyers: stats.totalBuyers || 0,
-          sellers: stats.totalSellers || 0,
-          sellerKyc: stats.pendingSellers || 0,
-          products: stats.activeProducts || dataStore.getProducts().length || 0,
-          orders: stats.todaysOrders || dataStore.getOrders().length || 0,
-          banners: 3,
-        });
+        setCounts((prev) => ({
+          ...prev,
+          buyers: dataStore.getBuyers?.()?.length || 0,
+          sellers: dataStore.getSellers?.()?.length || 0,
+          products: dataStore.getProducts?.()?.length || 0,
+          orders: dataStore.getOrders?.()?.length || 0,
+        }));
       }
     };
 
@@ -158,7 +203,25 @@ export default function Sidebar({
             badge: counts.sellerKyc > 0 ? counts.sellerKyc : null,
             badgeType: "orange",
           },
-          { name: "Proxy Inventory", path: "/admin/products", icon: Package },
+        ],
+      },
+      {
+        title: "SUPPORT & TICKETS",
+        items: [
+          {
+            name: "Support Tickets",
+            path: "/admin/tickets",
+            icon: LifeBuoy,
+            badge: counts.customerTickets > 0 ? counts.customerTickets : null,
+            badgeType: "blue",
+          },
+          {
+            name: "Seller Tickets",
+            path: "/admin/seller-tickets",
+            icon: Building2,
+            badge: counts.sellerTickets > 0 ? counts.sellerTickets : null,
+            badgeType: "orange",
+          },
         ],
       },
       {
@@ -168,7 +231,14 @@ export default function Sidebar({
           { name: "Subcategories", path: "/admin/subcategories", icon: Layers },
           { name: "Brands", path: "/admin/brands", icon: Tag },
           { name: "Products", path: "/admin/products", icon: Package, badge: counts.products, badgeType: "blue" },
-          { name: "Product Approvals", path: "/admin/product-approvals", icon: PackageCheck },
+          { name: "Vendor Stock", path: "/admin/vendor-stock", icon: Boxes },
+          {
+            name: "Product Approvals",
+            path: "/admin/product-approvals",
+            icon: PackageCheck,
+            badge: counts.pendingProducts > 0 ? counts.pendingProducts : null,
+            badgeType: "orange",
+          },
           { name: "RFQs", path: "/admin/rfqs", icon: HelpCircle },
         ],
       },
@@ -185,6 +255,13 @@ export default function Sidebar({
         items: [
           { name: "Orders", path: "/admin/orders", icon: ShoppingCart, badge: counts.orders, badgeType: "blue" },
           { name: "Payments & Invoices", path: "/admin/payments", icon: CreditCard },
+          {
+            name: "Pending Refunds",
+            path: "/admin/refunds",
+            icon: RefreshCw,
+            badge: counts.pendingRefunds > 0 ? counts.pendingRefunds : null,
+            badgeType: "orange",
+          },
           { name: "Shipments & Logistics", path: "/admin/shipments", icon: Truck },
           { name: "Reports & Analytics", path: "/admin/reports", icon: BarChart3 },
           { name: "Settings", path: "/admin/settings", icon: Settings },

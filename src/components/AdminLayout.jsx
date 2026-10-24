@@ -11,14 +11,25 @@ export default function AdminLayout() {
   const location = useLocation();
   const toast = useToast();
 
-  // Listen for 403 Forbidden events from API interceptor
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Listen for 403 Forbidden and 401 Session Expired events from API interceptor
   useEffect(() => {
     const handleForbidden = (e) => {
       const msg = e?.detail?.message || "Access Denied: You do not have permissions for this action.";
       toast?.error(msg);
     };
+    const handleSessionExpired = (e) => {
+      const msg = e?.detail?.message || "Admin session has expired. Please log in again.";
+      setSessionExpired(true);
+      toast?.warning(msg);
+    };
     window.addEventListener("auth:forbidden", handleForbidden);
-    return () => window.removeEventListener("auth:forbidden", handleForbidden);
+    window.addEventListener("auth:session_expired", handleSessionExpired);
+    return () => {
+      window.removeEventListener("auth:forbidden", handleForbidden);
+      window.removeEventListener("auth:session_expired", handleSessionExpired);
+    };
   }, [toast]);
 
   // Close mobile drawer automatically when route changes
@@ -53,6 +64,52 @@ export default function AdminLayout() {
           mobileOpen={mobileOpen}
           onToggleMobileMenu={() => setMobileOpen(!mobileOpen)}
         />
+
+        {sessionExpired && (
+          <div
+            style={{
+              background: "#fef2f2",
+              borderBottom: "1px solid #fecaca",
+              padding: "10px 24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              color: "#991b1b",
+              fontSize: "0.875rem",
+              fontWeight: 500,
+              zIndex: 90,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span>⚠️</span>
+              <span>
+                <strong>Admin session token has expired:</strong> The server returned 401 Unauthorized. Page refresh will not fix this; please re-login.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                localStorage.removeItem("adminToken");
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("authToken");
+                localStorage.removeItem("firebaseToken");
+                localStorage.removeItem("adminUser");
+                window.location.href = "/login";
+              }}
+              style={{
+                background: "#dc2626",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                padding: "6px 14px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Log In Again
+            </button>
+          </div>
+        )}
 
         <main className="page-content">
           <Outlet />

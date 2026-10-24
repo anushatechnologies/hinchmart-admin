@@ -57,7 +57,13 @@ export const AuthProvider = ({ children }) => {
   });
 
   useEffect(() => {
+    // Safety timer: Never leave the entire app stuck on full-screen loading spinner
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 600);
+
     const unsubscribe = onAuthStateChangedListener(async (currentUser) => {
+      clearTimeout(safetyTimer);
       if (currentUser) {
         setUser(currentUser);
         const storedBackendToken =
@@ -89,7 +95,10 @@ export const AuthProvider = ({ children }) => {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
   }, []);
 
   const handleLogin = async (email, password, rememberMe = false) => {

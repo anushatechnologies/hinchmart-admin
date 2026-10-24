@@ -26,29 +26,43 @@ const list = (payload) => {
  */
 export const normalizeSeller = (seller = {}) => {
   const id = seller.sellerId || seller.id || seller._id || (seller.userId ? `sel_${seller.userId}` : null);
-  const businessName = seller.companyName || seller.businessName || seller.storeName || seller.name || "Enterprise Merchant";
-  const ownerName = seller.name || seller.ownerName || seller.proprietor || "Merchant Owner";
+  const businessName = seller.companyName || seller.businessName || seller.storeName || seller.name || "";
+  const ownerName = seller.name || seller.ownerName || seller.proprietor || businessName || "";
   const gstin = seller.gstin || seller.gst || seller.gstNumber || "";
   const pan = seller.panNumber || seller.pan || "";
   const aadhaar = seller.aadhaarNumber || seller.aadhaar || "";
   
   const rawStatus = (seller.status || "").toUpperCase();
-  const rawApproval = (seller.approvalStatus || seller.approval_status || "").toUpperCase();
-  const verificationStatus = (seller.verificationStatus || seller.verification_status || (rawApproval === "APPROVED" || rawStatus === "ACTIVE" ? "VERIFIED" : "PENDING")).toUpperCase();
+  const rawApproval = (seller.approvalStatus || seller.approval_status || seller.kycStatus || seller.kyc_status || "").toUpperCase();
+  const rawVerification = (seller.verificationStatus || seller.verification_status || "").toUpperCase();
   const onboardingStatus = (seller.onboardingStatus || seller.onboarding_status || "PENDING_REVIEW").toUpperCase();
 
+  // Verification & KYC Status: ONLY VERIFIED if explicitly approved/verified by Admin
+  let verificationStatus = "PENDING";
+  if (rawVerification === "VERIFIED" || rawApproval === "APPROVED") {
+    verificationStatus = "VERIFIED";
+  } else if (rawVerification === "REJECTED" || rawApproval === "REJECTED") {
+    verificationStatus = "REJECTED";
+  }
+
+  // Approval Status: Having an active login account (status=ACTIVE) does NOT mean approved KYC!
+  let finalApprovalStatus = "PENDING";
+  if (rawApproval === "APPROVED" || rawVerification === "VERIFIED") {
+    finalApprovalStatus = "APPROVED";
+  } else if (rawApproval === "REJECTED" || rawVerification === "REJECTED" || rawStatus === "REJECTED") {
+    finalApprovalStatus = "REJECTED";
+  } else {
+    finalApprovalStatus = "PENDING";
+  }
+
+  // Account Status: (ACTIVE, INACTIVE, BLOCKED, SUSPENDED, PENDING)
   let finalStatus = "PENDING";
   if (rawStatus === "INACTIVE" || rawStatus === "BLOCKED" || rawStatus === "SUSPENDED" || rawStatus === "REJECTED") {
     finalStatus = rawStatus;
-  } else if (rawStatus === "ACTIVE" || rawApproval === "APPROVED" || verificationStatus === "VERIFIED") {
+  } else if (rawStatus === "ACTIVE") {
     finalStatus = "ACTIVE";
-  }
-
-  let finalApprovalStatus = "PENDING";
-  if (finalStatus === "ACTIVE" || verificationStatus === "VERIFIED" || rawApproval === "APPROVED") {
-    finalApprovalStatus = "APPROVED";
-  } else if (finalStatus === "REJECTED" || rawApproval === "REJECTED" || verificationStatus === "REJECTED") {
-    finalApprovalStatus = "REJECTED";
+  } else if (finalApprovalStatus === "APPROVED") {
+    finalStatus = "ACTIVE";
   }
 
   const productsCount = seller.productsCount ?? seller.totalProducts ?? seller.productCount ?? seller.total_products ?? seller.catalogSize ?? seller.products_count ?? (Array.isArray(seller.products) ? seller.products.length : (Array.isArray(seller.catalog) ? seller.catalog.length : undefined));
@@ -63,18 +77,18 @@ export const normalizeSeller = (seller = {}) => {
     ownerName,
     businessName,
     companyName: businessName,
-    email: seller.email || "seller@hinchmart.com",
-    phone: seller.phone || seller.phoneNumber || "+91 98765 43210",
+    email: seller.email || "",
+    phone: seller.phone || seller.phoneNumber || "",
     gst: gstin,
     gstin,
     gstNumber: gstin,
     panNumber: pan,
     aadhaarNumber: aadhaar,
-    city: seller.city || "Mumbai",
-    state: seller.state || "Maharashtra",
-    address: seller.businessAddress || seller.address || "Registered Industrial Facility",
-    pincode: seller.pincode || "400001",
-    bankName: seller.bankName || "HDFC Bank",
+    city: seller.city || "",
+    state: seller.state || "",
+    address: seller.businessAddress || seller.address || "",
+    pincode: seller.pincode || "",
+    bankName: seller.bankName || "",
     accountNumber: seller.accountNumber || "—",
     ifscCode: seller.ifscCode || "—",
     status: finalStatus,
@@ -115,15 +129,17 @@ export const getSellers = async (params = {}) => {
       backendSellers = [...raw];
     }
   } catch (err) {
-    // Secondary candidate endpoint
-    try {
-      const res = await api.get("/seller/onboarding/all", { params });
-      const raw = list(res.data);
-      if (raw && raw.length > 0) {
-        backendSellers = [...backendSellers, ...raw];
+    // If 401 unauthorized, credentials are invalid so skip secondary candidate endpoints
+    if (err?.response?.status !== 401) {
+      try {
+        const res = await api.get("/seller/onboarding/all", { params });
+        const raw = list(res.data);
+        if (raw && raw.length > 0) {
+          backendSellers = [...backendSellers, ...raw];
+        }
+      } catch {
+        // Graceful fallback
       }
-    } catch {
-      // Graceful fallback
     }
   }
 
@@ -163,37 +179,60 @@ export const getPendingSellers = async (params = {}) => {
   const adminSession = getAdminUserSession();
   const adminEmail = (adminSession?.email || "").toLowerCase();
 
-  // 1. Primary: GET /api/admin/sellers/pending
-  try {
-    const res = await api.get("/admin/sellers/pending", { params });
-    const raw = list(res.data);
-    if (Array.isArray(raw)) {
-      return raw
-        .map(normalizeSeller)
-        .filter((s) => {
-          const isRoleAdmin = s.role === "ADMIN" || s.role === "SUPER_ADMIN";
-          const isCurrentAdmin = adminEmail && s.email?.toLowerCase() === adminEmail;
-          return !isRoleAdmin && !isCurrentAdmin;
-        });
+  const map = new Map();
+
+  const collectPending = (listItems) => {
+    (listItems || []).forEach((raw) => {
+      const s = normalizeSeller(raw);
+      if (s) {
+        const isRoleAdmin = s.role === "ADMIN" || s.role === "SUPER_ADMIN";
+        const isCurrentAdmin = adminEmail && s.email?.toLowerCase() === adminEmail;
+        if (!isRoleAdmin && !isCurrentAdmin) {
+          const isPending =
+            s.approvalStatus === "PENDING" ||
+            s.verificationStatus === "PENDING" ||
+            s.onboardingStatus === "PENDING_REVIEW" ||
+            s.status === "PENDING" ||
+            (s.documents && s.documents.some((d) => d.verificationStatus === "PENDING" && d.isUploaded));
+          if (isPending) {
+            map.set(String(s.sellerId || s.id), s);
+          }
+        }
+      }
+    });
+  };
+
+  // 1. Query dedicated pending moderation endpoints
+  const endpoints = [
+    "/admin/sellers/pending",
+    "/admin/sellers?status=PENDING",
+    "/admin/sellers?approvalStatus=PENDING",
+    "/admin/sellers?kycStatus=PENDING",
+    "/seller/onboarding/all",
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await api.get(ep, { params });
+      const raw = list(res.data);
+      if (Array.isArray(raw) && raw.length > 0) {
+        collectPending(raw);
+      }
+    } catch (err) {
+      // If unauthorized, token is expired - stop querying further endpoints
+      if (err?.response?.status === 401) {
+        break;
+      }
     }
+  }
+
+  // 2. Comprehensive fallback: Check all registered sellers for unapproved / pending KYC status
+  try {
+    const allSellers = await getSellers(params);
+    collectPending(allSellers);
   } catch {}
 
-  // 2. Secondary: GET /api/admin/sellers?status=PENDING
-  try {
-    const res = await api.get("/admin/sellers", { params: { ...params, status: "PENDING" } });
-    const raw = list(res.data);
-    if (Array.isArray(raw)) {
-      return raw
-        .map(normalizeSeller)
-        .filter((s) => {
-          const isRoleAdmin = s.role === "ADMIN" || s.role === "SUPER_ADMIN";
-          const isCurrentAdmin = adminEmail && s.email?.toLowerCase() === adminEmail;
-          return !isRoleAdmin && !isCurrentAdmin;
-        });
-    }
-  } catch {}
-
-  return [];
+  return Array.from(map.values());
 };
 
 /**

@@ -113,7 +113,7 @@ export default function Reports() {
                     <td><strong>{item.date}</strong></td>
                     <td><span>{item.orders} Orders</span></td>
                     <td><strong className="amount-cell font-mono">₹{item.gmv.toLocaleString("en-IN")}</strong></td>
-                    <td><span className="font-mono">₹{Math.round(item.gmv / item.orders).toLocaleString("en-IN")}</span></td>
+                    <td><span className="font-mono">₹{item.orders > 0 ? Math.round(item.gmv / item.orders).toLocaleString("en-IN") : 0}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -123,7 +123,9 @@ export default function Reports() {
       )}
 
       {/* Report 2: Sales by Category */}
-      {activeReportTab === "sales_cat" && (
+      {activeReportTab === "sales_cat" && (() => {
+        const totalCatGmv = reportData.salesByCategory.reduce((sum, item) => sum + (Number(item.gmv) || 0), 0);
+        return (
         <div className="content-card" style={{ padding: 24 }}>
           <div className="card-section-title" style={{ marginBottom: 16 }}>
             <Layers size={18} />
@@ -146,14 +148,15 @@ export default function Reports() {
                     <td><strong>{item.category}</strong></td>
                     <td><span>{item.ordersCount} Orders</span></td>
                     <td><strong className="amount-cell font-mono">₹{item.gmv.toLocaleString("en-IN")}</strong></td>
-                    <td><span className="stock-badge">{Math.round((item.gmv / 965170) * 100)}%</span></td>
+                    <td><span className="stock-badge">{totalCatGmv > 0 ? Math.round((item.gmv / totalCatGmv) * 100) : 0}%</span></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Report 3: Sales by Seller */}
       {activeReportTab === "sales_seller" && (

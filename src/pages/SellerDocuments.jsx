@@ -83,17 +83,17 @@ export default function SellerDocuments() {
     businessType: "PRIVATE_LIMITED",
     gstin: "",
     businessAddress: "",
-    state: "Maharashtra",
-    city: "Mumbai",
-    pincode: "400001",
-    bankName: "HDFC Bank",
+    state: "",
+    city: "",
+    pincode: "",
+    bankName: "",
     accountHolderName: "",
     accountNumber: "",
-    ifscCode: "HDFC0000123",
+    ifscCode: "",
     accountType: "CURRENT",
-    panFileUrl: "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=80",
-    aadhaarFileUrl: "https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=600&auto=format&fit=crop&q=80",
-    gstFileUrl: "https://images.unsplash.com/photo-1450133064473-71024230f91b?w=600&auto=format&fit=crop&q=80",
+    panFileUrl: "",
+    aadhaarFileUrl: "",
+    gstFileUrl: "",
   });
 
   const [syncing, setSyncing] = useState(false);
@@ -959,19 +959,19 @@ export default function SellerDocuments() {
                       type: "PAN",
                       title: "1. PAN Card Document",
                       docNumber: selectedVault.panNumber || selectedVault.documents?.find((d) => d.documentType === "PAN")?.documentNumber,
-                      defaultUrl: "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=80",
+                      defaultUrl: "",
                     },
                     {
                       type: "AADHAAR",
                       title: "2. Aadhaar Card (Authorized Signatory)",
                       docNumber: selectedVault.aadhaarNumber || selectedVault.documents?.find((d) => d.documentType === "AADHAAR")?.documentNumber,
-                      defaultUrl: "https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=600&auto=format&fit=crop&q=80",
+                      defaultUrl: "",
                     },
                     {
                       type: "GST",
                       title: "3. GST Registration Certificate (REG-06)",
                       docNumber: selectedVault.gstin || selectedVault.documents?.find((d) => d.documentType === "GST")?.documentNumber,
-                      defaultUrl: "https://images.unsplash.com/photo-1450133064473-71024230f91b?w=600&auto=format&fit=crop&q=80",
+                      defaultUrl: "",
                     },
                   ].map((docConfig) => {
                     const doc = selectedVault.documents?.find((d) => d.documentType === docConfig.type);

@@ -53,8 +53,8 @@ export default function Buyers() {
 
   // Wallet Modal State (Endpoint #5: POST /api/wallet/topup)
   const [walletBuyer, setWalletBuyer] = useState(null);
-  const [walletAmount, setWalletAmount] = useState("2500");
-  const [walletDescription, setWalletDescription] = useState("Dispute reimbursement / loyalty credit");
+  const [walletAmount, setWalletAmount] = useState("");
+  const [walletDescription, setWalletDescription] = useState("");
   const [walletSubmitting, setWalletSubmitting] = useState(false);
 
   // Customer Financial Audit Modal State (Endpoint #2: GET /api/payments/customer/{customerId})

@@ -42,6 +42,10 @@ const breadcrumbMap = {
   "/admin/sellers": "Sellers Management",
   "/admin/seller-approvals": "Seller Approvals",
   "/admin/seller-documents": "Seller Documents & KYC Vault",
+  "/admin/seller-tickets": "Seller Support Tickets",
+  "/admin/customer-tickets": "Customer Support Tickets",
+  "/admin/support-tickets": "Support Tickets",
+  "/admin/tickets": "Support Tickets",
   "/admin/categories": "Category Management",
   "/admin/subcategories": "Subcategories Management",
   "/admin/brands": "Brands Management",
@@ -125,8 +129,15 @@ export default function Topbar({
     const bannerPage = "banners banner marketing merchandising campaigns video".includes(q)
       ? [{ type: "PAGE", title: "Banner Merchandising & Video Studio", subtitle: "Marketing Campaigns (/admin/banners)", link: "/admin/banners" }]
       : [];
+    const ticketPage = "tickets ticket support dispute complaint helpdesk help".includes(q)
+      ? [
+          { type: "PAGE", title: "Seller Support Tickets", subtitle: "Merchant Inquiries & Disputes (/admin/seller-tickets)", link: "/admin/seller-tickets" },
+          { type: "PAGE", title: "Customer Support Tickets", subtitle: "Buyer Disputes, Quality Complaints & Returns (/admin/customer-tickets)", link: "/admin/customer-tickets" },
+        ]
+      : [];
 
     return [
+      ...ticketPage,
       ...bannerPage,
       ...banners.map((b) => ({ type: "BANNER", title: b.title, subtitle: `${b.position || "HOME_VIDEO"} • ${b.badge || "Live Campaign"}`, link: "/admin/banners" })),
       ...brands.map((b) => ({ type: "BRAND", title: b.name, subtitle: `${b.categoryName || "Category"} › ${b.subcategoryName || "Subcategory"}`, link: `/admin/brands?search=${encodeURIComponent(b.name)}` })),

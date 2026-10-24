@@ -47,6 +47,7 @@ import {
   toggleProductActive,
   deleteProduct,
   getStoredProducts,
+  isSellerAddedProduct,
 } from "../api/productApi";
 import { getCategories, getStoredCategories, getStoredSubcategories } from "../api/categoryApi";
 import { getSubcategories } from "../api/subcategoryApi";
@@ -249,11 +250,11 @@ export default function Products() {
     catId = categoryFilter,
     subcatId = subcategoryFilter,
     bId = brandFilter,
-    status = statusFilter,
+    stFilter = statusFilter,
     showLoader = true
   ) => {
     try {
-      if (showLoader) setLoading(true);
+      if (showLoader && (!products || products.length === 0)) setLoading(true);
       const res = await getAdminProducts({
         page: targetPage,
         limit: targetLimit,
@@ -261,7 +262,7 @@ export default function Products() {
         categoryId: catId,
         subcategoryId: subcatId,
         brandId: bId,
-        status: status,
+        status: stFilter,
         paginated: true,
       });
 
@@ -405,7 +406,7 @@ export default function Products() {
     }
     const timer = setTimeout(() => {
       setPage(1);
-      fetchPaginatedProducts(1, limit, search, categoryFilter, subcategoryFilter, brandFilter, statusFilter, true);
+      fetchPaginatedProducts(1, limit, search, categoryFilter, subcategoryFilter, brandFilter, statusFilter, false);
     }, 350);
     return () => clearTimeout(timer);
   }, [search, categoryFilter, subcategoryFilter, brandFilter, statusFilter]);
@@ -450,7 +451,13 @@ export default function Products() {
   }, [categories, subcategories]);
 
   const getStatus = (product) => {
-    if (!product) return "PENDING";
+    if (!product) return "APPROVED";
+    const isSeller = isSellerAddedProduct(product);
+    if (!isSeller) {
+      // Admin added products never need approval. They are only Active or Deactivated.
+      const active = product.active !== undefined ? Boolean(product.active) : true;
+      return active ? "APPROVED" : "INACTIVE";
+    }
     const rawStatus = (
       product.approvalStatus ||
       product.approval_status ||
@@ -985,8 +992,8 @@ export default function Products() {
       ? parseFloat(String(formData.price).replace(/[^0-9.]/g, "")) || 0
       : undefined;
     const cleanMrp = formData.mrp !== undefined && formData.mrp !== ""
-      ? (parseFloat(String(formData.mrp).replace(/[^0-9.]/g, "")) || (cleanPrice ? cleanPrice * 1.15 : undefined))
-      : (cleanPrice ? cleanPrice * 1.15 : undefined);
+      ? (parseFloat(String(formData.mrp).replace(/[^0-9.]/g, "")) || undefined)
+      : undefined;
     const cleanStockQty = Math.min(2147483647, parseInt(String(formData.stockQty ?? formData.stock ?? "0").replace(/[^0-9]/g, ""), 10) || 0);
     const cleanMoq = Math.min(2147483647, parseInt(String(formData.moq || "1").replace(/[^0-9]/g, ""), 10) || 1);
     const cleanGstRate = formData.gst || formData.gstRate
@@ -1259,8 +1266,8 @@ export default function Products() {
       ? parseFloat(String(sellerFormData.price).replace(/[^0-9.]/g, "")) || 0
       : undefined;
     const cleanMrp = sellerFormData.mrp !== undefined && sellerFormData.mrp !== ""
-      ? (parseFloat(String(sellerFormData.mrp).replace(/[^0-9.]/g, "")) || (cleanPrice ? cleanPrice * 1.15 : undefined))
-      : (cleanPrice ? cleanPrice * 1.15 : undefined);
+      ? (parseFloat(String(sellerFormData.mrp).replace(/[^0-9.]/g, "")) || undefined)
+      : undefined;
     const cleanStockQty = parseInt(String(sellerFormData.stockQty ?? "120").replace(/[^0-9]/g, ""), 10) || 0;
     const cleanMoq = parseInt(String(sellerFormData.moq || "1").replace(/[^0-9]/g, ""), 10) || 1;
 
@@ -1502,12 +1509,21 @@ export default function Products() {
   }, []);
 
   const counts = useMemo(() => {
+    const totalCount = pagination.totalCount || products.length;
+    const pendingCount = products.filter((p) => getStatus(p) === "PENDING").length;
+    const inactiveCount = products.filter((p) => getStatus(p) === "INACTIVE").length;
+    const rejectedCount = products.filter((p) => getStatus(p) === "REJECTED").length;
+    const approvedCount = products.filter((p) => {
+      const st = getStatus(p);
+      return st === "APPROVED" || st === "ACTIVE";
+    }).length;
+
     return {
-      total: pagination.totalCount || products.length,
-      approved: pagination.totalCount || products.filter((p) => (p.active ?? true) && (getStatus(p) === "APPROVED" || getStatus(p) === "ACTIVE")).length,
-      pending: products.filter((p) => getStatus(p) === "PENDING").length,
-      inactive: products.filter((p) => p.active === false || getStatus(p) === "INACTIVE").length,
-      rejected: products.filter((p) => getStatus(p) === "REJECTED").length,
+      total: totalCount,
+      approved: pagination.totalCount > 0 ? Math.max(0, totalCount - pendingCount - inactiveCount - rejectedCount) : approvedCount,
+      pending: pendingCount,
+      inactive: inactiveCount,
+      rejected: rejectedCount,
     };
   }, [pagination.totalCount, products]);
 
@@ -1958,7 +1974,9 @@ export default function Products() {
                   <th>Brand & Lineage</th>
                   <th>Seller / Merchant</th>
                   <th>Unit Price</th>
-                  <th>MOQ / Stock</th>
+                  <th title="Warehouse Base Stock. For customer consignment availability, see Vendor Stock screen.">
+                    MOQ / Base Stock
+                  </th>
                   <th>Status</th>
                   <th>Live Activation</th>
                   <th style={{ textAlign: "right" }}>Actions</th>
@@ -2090,8 +2108,12 @@ export default function Products() {
                         <td>
                           <div className="moq-stock-cell">
                             <span>MOQ: <strong>{product.moq || 1}</strong></span>
-                            <span className={`stock-badge ${Number(product.stock || 0) < 20 ? "low" : ""}`}>
-                              {product.stock || 0} in stock
+                            <span
+                              className={`stock-badge ${Number(product.stockQty ?? product.stock ?? 0) < 20 ? "low" : ""}`}
+                              title="Raw warehouse base stock. For physical vendor availability, check Vendor Consignment Stock."
+                              style={{ cursor: "help" }}
+                            >
+                              {product.stock || 0} Base
                             </span>
                           </div>
                         </td>
@@ -2123,7 +2145,7 @@ export default function Products() {
                               <input
                                 type="checkbox"
                                 checked={isActive}
-                                disabled={status === "REJECTED"}
+                                disabled={status === "REJECTED" && isSellerAddedProduct(product)}
                                 onChange={() => handleToggleActivate(product)}
                               />
                               <span className="slider round"></span>
@@ -2246,9 +2268,9 @@ export default function Products() {
         <div className="products-pagination-toolbar">
           <div className="pagination-left-section">
             <div className="pagination-count-info">
-              Showing <strong>{pagination.totalCount > 0 ? (page - 1) * limit + 1 : 0}</strong> –{" "}
-              <strong>{Math.min(page * limit, pagination.totalCount)}</strong> of{" "}
-              <strong>{pagination.totalCount}</strong> products
+              Showing <strong>{pagination.totalCount > 0 ? (page - 1) * limit + 1 : (filteredProducts.length > 0 ? 1 : 0)}</strong> –{" "}
+              <strong>{pagination.totalCount > 0 ? Math.min(page * limit, pagination.totalCount) : filteredProducts.length}</strong> of{" "}
+              <strong>{pagination.totalCount > 0 ? pagination.totalCount : filteredProducts.length}</strong> products
             </div>
 
             <div className="pagination-page-size-picker">

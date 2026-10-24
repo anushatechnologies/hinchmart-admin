@@ -765,6 +765,37 @@ tbody tr.row-selected {
   background: #22c55e;
 }
 
+.status-placed {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.status-placed .status-dot {
+  background: #f59e0b;
+}
+
+.status-loaded {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border: 1px solid #ddd6fe;
+}
+.status-loaded .status-dot {
+  background: #8b5cf6;
+}
+
+.status-dispatched,
+.status-in_transit,
+.status-in-transit {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+.status-dispatched .status-dot,
+.status-in_transit .status-dot,
+.status-in-transit .status-dot {
+  background: #2563eb;
+}
+
 /* --------------------------------------------------------------------------
    INTERACTIVE TOGGLE SWITCH (Active / Deactivate)
    -------------------------------------------------------------------------- */

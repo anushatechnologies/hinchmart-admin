@@ -69,15 +69,18 @@ export const setStoredInvoices = (invoices) => {
 
 /**
  * 7. Tax Invoice Metadata
- * GET /api/orders/{orderId}/invoice
+ * GET /api/admin/orders/{orderId}/invoice (or fallback /api/orders/{orderId}/invoice)
  */
 export const getOrderInvoiceMetadata = async (orderId) => {
-  try {
-    const res = await api.get(`/orders/${orderId}/invoice`);
-    const data = res.data?.data || res.data;
-    if (data) return normalizeInvoice(data);
-  } catch (err) {
-    console.warn(`GET /orders/${orderId}/invoice notice:`, err?.message);
+  const eps = [`/admin/orders/${orderId}/invoice`, `/orders/${orderId}/invoice`];
+  for (const ep of eps) {
+    try {
+      const res = await api.get(ep);
+      const data = res.data?.data || res.data;
+      if (data) return normalizeInvoice(data);
+    } catch (err) {
+      console.warn(`GET ${ep} notice:`, err?.message);
+    }
   }
 
   const all = getStoredInvoices();
@@ -86,48 +89,52 @@ export const getOrderInvoiceMetadata = async (orderId) => {
 
 /**
  * Download Tax Invoice PDF Attachment
- * GET /api/orders/{orderId}/invoice/download
+ * GET /api/admin/orders/{orderId}/invoice/download (or fallback /api/orders/{orderId}/invoice/download)
  */
 export const downloadOrderInvoicePdf = async (orderId) => {
-  try {
-    const response = await api.get(`/orders/${orderId}/invoice/download`, {
-      responseType: "blob",
-    });
-    const blob = new Blob([response.data], { type: "application/pdf" });
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.setAttribute("download", `TaxInvoice-ORD-${orderId}.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(downloadUrl);
-    return true;
-  } catch (err) {
-    console.warn(`Direct PDF download /orders/${orderId}/invoice/download notice:`, err?.message);
-    window.open(`/admin/invoices/${orderId}`, "_blank");
-    return false;
+  const eps = [`/admin/orders/${orderId}/invoice/download`, `/orders/${orderId}/invoice/download`];
+  for (const ep of eps) {
+    try {
+      const response = await api.get(ep, { responseType: "blob" });
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.setAttribute("download", `TaxInvoice-ORD-${orderId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+      return true;
+    } catch (err) {
+      console.warn(`Direct PDF download ${ep} notice:`, err?.message);
+    }
   }
+
+  window.open(`/admin/invoices/${orderId}`, "_blank");
+  return false;
 };
 
 /**
  * Preview Tax Invoice PDF (Inline)
- * GET /api/orders/{orderId}/invoice/pdf
+ * GET /api/admin/orders/{orderId}/invoice/pdf (or fallback /api/orders/{orderId}/invoice/pdf)
  */
 export const previewOrderInvoicePdf = async (orderId) => {
-  try {
-    const response = await api.get(`/orders/${orderId}/invoice/pdf`, {
-      responseType: "blob",
-    });
-    const blob = new Blob([response.data], { type: "application/pdf" });
-    const fileUrl = window.URL.createObjectURL(blob);
-    window.open(fileUrl, "_blank");
-    return true;
-  } catch (err) {
-    console.warn(`Preview PDF /orders/${orderId}/invoice/pdf notice:`, err?.message);
-    window.open(`/admin/invoices/${orderId}`, "_blank");
-    return false;
+  const eps = [`/admin/orders/${orderId}/invoice/pdf`, `/orders/${orderId}/invoice/pdf`];
+  for (const ep of eps) {
+    try {
+      const response = await api.get(ep, { responseType: "blob" });
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const fileUrl = window.URL.createObjectURL(blob);
+      window.open(fileUrl, "_blank");
+      return true;
+    } catch (err) {
+      console.warn(`Preview PDF ${ep} notice:`, err?.message);
+    }
   }
+
+  window.open(`/admin/invoices/${orderId}`, "_blank");
+  return false;
 };
 
 /**

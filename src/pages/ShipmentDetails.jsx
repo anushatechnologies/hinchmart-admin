@@ -233,11 +233,11 @@ export default function ShipmentDetails() {
             </div>
             <div className="party-row">
               <span className="party-label">Warehouse Address</span>
-              <span className="party-val">{shipment.pickup || "MIDC Industrial Estate facility"}</span>
+              <span className="party-val">{shipment.pickup || "—"}</span>
             </div>
             <div className="party-row">
               <span className="party-label">Merchant Phone</span>
-              <span className="party-val">{shipment.seller?.phone || "+91 98220 54321"}</span>
+              <span className="party-val">{shipment.seller?.phone || "—"}</span>
             </div>
           </div>
         </div>
@@ -252,15 +252,15 @@ export default function ShipmentDetails() {
           <div className="party-details-body">
             <div className="party-row">
               <span className="party-label">Consignee Buyer</span>
-              <strong className="party-val">{shipment.buyer?.name || shipment.buyerName}</strong>
+              <strong className="party-val">{shipment.buyer?.name || shipment.buyerName || "—"}</strong>
             </div>
             <div className="party-row">
               <span className="party-label">Delivery Site Address</span>
-              <span className="party-val">{shipment.destination || "GIDC Industrial Estate site"}</span>
+              <span className="party-val">{shipment.destination || "—"}</span>
             </div>
             <div className="party-row">
               <span className="party-label">Buyer Contact</span>
-              <span className="party-val">{shipment.buyer?.phone || "+91 98765 43210"}</span>
+              <span className="party-val">{shipment.buyer?.phone || "—"}</span>
             </div>
           </div>
         </div>

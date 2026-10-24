@@ -266,12 +266,22 @@ export default function Sellers() {
   }, []);
 
   const getStatus = (seller) => {
-    return (
-      seller.status ||
-      seller.approvalStatus ||
-      seller.approval_status ||
-      "PENDING"
-    ).toUpperCase();
+    if (!seller) return "PENDING";
+    const approval = (seller.approvalStatus || seller.approval_status || seller.kycStatus || seller.kyc_status || "").toUpperCase();
+    if (approval === "PENDING" || approval === "PENDING_APPROVAL" || approval === "UNDER_REVIEW") {
+      return "PENDING";
+    }
+    if (approval === "REJECTED") {
+      return "REJECTED";
+    }
+    const rawStatus = (seller.status || "").toUpperCase();
+    if (rawStatus === "INACTIVE" || rawStatus === "BLOCKED" || rawStatus === "SUSPENDED" || rawStatus === "REJECTED") {
+      return rawStatus;
+    }
+    if (approval === "APPROVED" || (seller.verificationStatus || "").toUpperCase() === "VERIFIED") {
+      return "ACTIVE";
+    }
+    return rawStatus || "PENDING";
   };
 
   // Status Toggles
@@ -416,7 +426,7 @@ export default function Sellers() {
       email: seller.email || "",
       phone: seller.phone || "",
       gst: seller.gst || seller.gstNumber || "",
-      category: seller.category || "Tools & Hardware Supplies",
+      category: seller.category || "",
       address: seller.address || "",
       city: seller.city || "",
       state: seller.state || "",
@@ -1037,7 +1047,7 @@ export default function Sellers() {
                     <label>Store Rating</label>
                     <div style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, fontWeight: 700, color: "#f59e0b", display: "flex", alignItems: "center", gap: 5 }}>
                       <Star size={14} style={{ fill: "#f59e0b", color: "#f59e0b" }} />
-                      {selectedSeller.rating || "5.0"} / 5.0
+                      {selectedSeller.rating !== undefined && selectedSeller.rating !== null ? `${selectedSeller.rating} / 5.0` : "—"}
                     </div>
                   </div>
                   <div className="input-field-wrap full-width">

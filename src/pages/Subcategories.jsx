@@ -474,25 +474,8 @@ export default function Subcategories() {
       setIsDeleting(true);
       selfTriggeredRef.current = true;
 
-      // Optimistically remove from UI immediately (including any local duplicates with same name)
-      setSubcategories((prev) =>
-        prev.filter((item) => {
-          const itemId = item.subcategoryId || item.id || item._id;
-          if (String(itemId) === String(id)) return false;
-          if (
-            !isRemoteId(itemId) &&
-            item.name?.trim().toLowerCase() === subName.trim().toLowerCase() &&
-            String(item.categoryId) === String(catId)
-          ) {
-            return false;
-          }
-          return true;
-        })
-      );
-      setSelectedIds((prev) => prev.filter((i) => String(i) !== String(id)));
-
       await deleteSubcategory(id, catId, subName);
-      toast.info(`Subcategory "${subName}" deleted successfully.`);
+      toast.success(`Subcategory "${subName}" deleted successfully.`);
       setDeleteTarget(null);
       await loadData(false);
     } catch (err) {
@@ -501,7 +484,7 @@ export default function Subcategories() {
         err?.response?.data?.error ||
         err?.message ||
         "Unable to delete subcategory.";
-      toast.error(`Delete notice: ${serverMsg}`);
+      toast.error(serverMsg, { autoClose: 7000 });
       setDeleteTarget(null);
       await loadData(false);
     } finally {
@@ -1514,10 +1497,10 @@ export default function Subcategories() {
                 <div
                   style={{
                     display: "flex",
-                    alignItems: "flex-start",
-                    gap: 12,
+                    flexDirection: "column",
+                    gap: 10,
                     marginTop: 18,
-                    padding: "12px 16px",
+                    padding: "14px 16px",
                     background: "#fef2f2",
                     border: "1px solid #fecaca",
                     borderRadius: 10,
@@ -1526,10 +1509,34 @@ export default function Subcategories() {
                     lineHeight: 1.5,
                   }}
                 >
-                  <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2, color: "#dc2626" }} />
-                  <div>
-                    <strong style={{ fontWeight: 700 }}>Database Notice:</strong> This subcategory currently has{" "}
-                    <strong>{deleteTarget.productCount}</strong> mapped products. Deleting it will detach them.
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2, color: "#dc2626" }} />
+                    <div>
+                      <strong style={{ fontWeight: 700 }}>Database Foreign Key Notice:</strong> This subcategory currently has{" "}
+                      <strong>{deleteTarget.productCount}</strong> mapped products in the database. Deleting it will fail if active products are still assigned to it.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const target = deleteTarget;
+                        setDeleteTarget(null);
+                        await handleToggleWebsiteVisibility(target);
+                      }}
+                      style={{
+                        background: "#ffffff",
+                        border: "1px solid #dc2626",
+                        color: "#dc2626",
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Hide from Website Instead (Safe)
+                    </button>
                   </div>
                 </div>
               )}

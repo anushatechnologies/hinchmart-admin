@@ -94,73 +94,7 @@ const slugify = (value = "") =>
 
 const list = (payload) => (Array.isArray(payload) ? payload : payload?.categories || payload?.data || []);
 
-export const INITIAL_CATEGORIES = [
-  {
-    categoryId: 35,
-    id: 35,
-    name: "Civil",
-    slug: "civil",
-    description: "TMT Rebars, Structural Steel, Cement, Ready Mix Concrete & Construction Aggregates.",
-    sortOrder: 1,
-    displayOrder: 1,
-    imageUrl: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=400&q=80",
-    image: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=400&q=80",
-    active: true,
-    subcategories: [],
-  },
-  {
-    categoryId: 36,
-    id: 36,
-    name: "Electrical",
-    slug: "electrical",
-    description: "Armoured HT/LT cables, Industrial switchgear, transformers & high bay lights.",
-    sortOrder: 2,
-    displayOrder: 2,
-    imageUrl: "https://images.unsplash.com/photo-1544724569-5f546fd6f2b5?auto=format&fit=crop&w=400&q=80",
-    image: "https://images.unsplash.com/photo-1544724569-5f546fd6f2b5?auto=format&fit=crop&w=400&q=80",
-    active: true,
-    subcategories: [],
-  },
-  {
-    categoryId: 37,
-    id: 37,
-    name: "Plumbing",
-    slug: "plumbing",
-    description: "CPVC & UPVC industrial pipes, HDPE drainage, valves and high-pressure fittings.",
-    sortOrder: 3,
-    displayOrder: 3,
-    imageUrl: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=400&q=80",
-    image: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=400&q=80",
-    active: true,
-    subcategories: [],
-  },
-  {
-    categoryId: 42,
-    id: 42,
-    name: "Hardware",
-    slug: "hardware",
-    description: "Industrial hardware, fasteners, locks, hinges, and construction fittings.",
-    sortOrder: 4,
-    displayOrder: 4,
-    imageUrl: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=400&q=80",
-    image: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=400&q=80",
-    active: true,
-    subcategories: [],
-  },
-  {
-    categoryId: 88,
-    id: 88,
-    name: "Power Tools",
-    slug: "power-tools",
-    description: "Concrete mixers, scaffolding systems, hydraulic hoists and power cutters.",
-    sortOrder: 5,
-    displayOrder: 5,
-    imageUrl: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=400&q=80",
-    image: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=400&q=80",
-    active: true,
-    subcategories: [],
-  },
-];
+export const INITIAL_CATEGORIES = [];
 
 // In-memory runtime store for guaranteed availability
 let inMemoryCategories = null;
@@ -177,7 +111,7 @@ export const getStoredCategories = () => {
   if (inMemoryCategories && inMemoryCategories.length > 0) {
     return inMemoryCategories;
   }
-  if (typeof window === "undefined") return INITIAL_CATEGORIES;
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
     if (raw) {
@@ -191,7 +125,7 @@ export const getStoredCategories = () => {
     }
   } catch {}
 
-  inMemoryCategories = [...INITIAL_CATEGORIES];
+  inMemoryCategories = [];
   safeSetItem(STORAGE_KEY_CATEGORIES, inMemoryCategories);
   return inMemoryCategories;
 };
@@ -263,8 +197,10 @@ export const getStoredSubcategories = () => {
   const isDeleted = (s) => {
     if (!s) return true;
     const sId = String(s.subcategoryId || s.id || "");
-    const sKey = `${(s.name || "").trim().toLowerCase()}:::${String(s.categoryId || "")}`;
+    const cleanName = (s.name || "").trim().toLowerCase();
+    const sKey = `${cleanName}:::${String(s.categoryId || "")}`;
     if (sId && deletedSubs.has(sId)) return true;
+    if (cleanName && deletedNames.has(cleanName)) return true;
     if (deletedNames.has(sKey)) return true;
     return false;
   };
@@ -345,8 +281,10 @@ export const setStoredSubcategories = (subs) => {
   const isDeleted = (s) => {
     if (!s) return true;
     const sId = String(s.subcategoryId || s.id || "");
-    const sKey = `${(s.name || "").trim().toLowerCase()}:::${String(s.categoryId || "")}`;
+    const cleanName = (s.name || "").trim().toLowerCase();
+    const sKey = `${cleanName}:::${String(s.categoryId || "")}`;
     if (sId && deletedSubs.has(sId)) return true;
+    if (cleanName && deletedNames.has(cleanName)) return true;
     if (deletedNames.has(sKey)) return true;
     return false;
   };

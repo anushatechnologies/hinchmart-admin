@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Search,
+  Upload,
   Check,
   X,
   Eye,
@@ -26,7 +27,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { getPendingSellers, approveSeller, rejectSeller, lookupSellerDirectly } from "../api/sellerApi";
-import { getSellerDocuments, verifyDocument } from "../api/sellerDocumentApi";
+import { getSellerDocuments, verifyDocument, normalizeSellerDocuments, uploadAndAttachSellerDocument } from "../api/sellerDocumentApi";
 import { subscribeDataUpdate } from "../api/dataStore";
 import { useToast } from "../components/ToastContext";
 import "../styles/pages.css";
@@ -105,18 +106,18 @@ export default function SellerApprovals() {
     if (selectedSeller) {
       const id = selectedSeller.sellerId || selectedSeller.id || selectedSeller._id;
       setLoadingDocs(true);
-      getSellerDocuments(id)
+      getSellerDocuments(id, selectedSeller)
         .then((docs) => {
           if (Array.isArray(docs) && docs.length > 0) {
             setSellerDocs(docs);
           } else if (Array.isArray(selectedSeller.documents) && selectedSeller.documents.length > 0) {
             setSellerDocs(selectedSeller.documents);
           } else {
-            setSellerDocs([]);
+            setSellerDocs(normalizeSellerDocuments(selectedSeller));
           }
         })
         .catch(() => {
-          setSellerDocs(selectedSeller.documents || []);
+          setSellerDocs(normalizeSellerDocuments(selectedSeller));
         })
         .finally(() => {
           setLoadingDocs(false);
@@ -163,6 +164,27 @@ export default function SellerApprovals() {
       await loadPendingSellers();
     } catch (err) {
       toast.error("Rejection failed: " + (err?.message || ""));
+    } finally {
+      setActionInProgress(false);
+    }
+  };
+
+  const handleUploadDoc = async (docType, file, documentNumber = "") => {
+    if (!selectedSeller || !file) return;
+    const sid = selectedSeller.sellerId || selectedSeller.id || selectedSeller._id;
+    try {
+      setActionInProgress(true);
+      toast.info(`Uploading ${docType} document...`);
+      const updatedVault = await uploadAndAttachSellerDocument(sid, docType, file, documentNumber);
+      if (updatedVault && Array.isArray(updatedVault.documents) && updatedVault.documents.length > 0) {
+        setSellerDocs(updatedVault.documents);
+      } else {
+        const refreshed = await getSellerDocuments(sid, selectedSeller);
+        setSellerDocs(refreshed);
+      }
+      toast.success(`${docType} document attached successfully!`);
+    } catch (err) {
+      toast.error(`Document upload failed: ${err?.message || "Error"}`);
     } finally {
       setActionInProgress(false);
     }
@@ -439,7 +461,7 @@ export default function SellerApprovals() {
                         </span>
                       </div>
                       <div className="approval-category">
-                        <span>{seller.category || seller.businessType || "General Industrial Supplies"}</span>
+                        <span>{seller.category || seller.businessType || "—"}</span>
                         <span>
                           Applied {submittedDate ? new Date(submittedDate).toLocaleDateString("en-IN") : "recently"}
                         </span>
@@ -657,7 +679,7 @@ export default function SellerApprovals() {
                   <div className="input-field-wrap">
                     <label>Business Category / Type</label>
                     <div style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
-                      {selectedSeller.category || selectedSeller.businessType || "General Industrial Supplies"}
+                      {selectedSeller.category || selectedSeller.businessType || "—"}
                     </div>
                   </div>
 
@@ -692,7 +714,7 @@ export default function SellerApprovals() {
                   <div className="input-field-wrap full-width">
                     <label>Warehouse / Registered Address</label>
                     <div style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, color: "#0f172a" }}>
-                      {selectedSeller.address || selectedSeller.businessAddress || "Registered facility"}
+                      {selectedSeller.address || selectedSeller.businessAddress || "—"}
                       {selectedSeller.pincode ? ` - ${selectedSeller.pincode}` : ""}
                     </div>
                   </div>
@@ -708,7 +730,7 @@ export default function SellerApprovals() {
                   <div className="input-field-wrap">
                     <label>Bank Name</label>
                     <div style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, color: "#0f172a", fontWeight: 600 }}>
-                      {selectedSeller.bankName || "HDFC Bank"}
+                      {selectedSeller.bankName || "—"}
                     </div>
                   </div>
 
@@ -729,7 +751,7 @@ export default function SellerApprovals() {
                   <div className="input-field-wrap">
                     <label>Account Type</label>
                     <div style={{ padding: "9px 13px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 9, fontSize: 13, color: "#0f172a" }}>
-                      {selectedSeller.accountType || "CURRENT"}
+                      {selectedSeller.accountType || "—"}
                     </div>
                   </div>
                 </div>
@@ -797,7 +819,7 @@ export default function SellerApprovals() {
                           </div>
 
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            {doc.fileUrl && (
+                            {doc.fileUrl ? (
                               <a
                                 href={doc.fileUrl}
                                 target="_blank"
@@ -817,6 +839,35 @@ export default function SellerApprovals() {
                               >
                                 <ExternalLink size={12} /> View File
                               </a>
+                            ) : (
+                              <label
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: 11,
+                                  padding: "5px 9px",
+                                  borderRadius: 6,
+                                  background: "#f8fafc",
+                                  color: "#475569",
+                                  border: "1px dashed #cbd5e1",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                }}
+                                title="Upload and attach document image or PDF"
+                              >
+                                <Upload size={12} />
+                                <span>Attach File</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,.pdf"
+                                  style={{ display: "none" }}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleUploadDoc(docType, file, doc.documentNumber);
+                                  }}
+                                />
+                              </label>
                             )}
 
                             {isVerified ? (
